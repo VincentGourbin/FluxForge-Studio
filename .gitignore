@@ -1,0 +1,41 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+
+# Fichiers système macOS à ignorer
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icônes
+Icon
+
+# Miniatures
+._*
+
+# Fichiers qui pourraient apparaître sur des volumes externes
+.Spotlight-V100
+.Trashes
+
+# Fichiers potentiellement créés sur des partages réseau AFP
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Fichiers de sauvegarde iCloud
+*.icloud
+
+
+.gradio
+/lora
+/outputimage
+generated_images.db
+lora_info.json
