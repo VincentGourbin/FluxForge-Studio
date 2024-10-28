@@ -1,0 +1,42 @@
+[
+    {
+        "file_name": "safety_comment_flux_lora_v1.safetensors",
+        "description": "Images dans un contexte santé sécurité BYCN",
+        "activation_keyword": "safetycomment"
+    },
+    {
+        "file_name": "bycn_graphic_standards_flux_lora_v2.safetensors",
+        "description": "Charte graphique de BYCN",
+        "activation_keyword": "BYCN graphic standards"
+    },    
+    {
+        "file_name": "Flux_1_Dev_LoRA_Paper-Cutout-Style.safetensors",
+        "description": "Image dans un style découpage papier",
+        "activation_keyword": "Paper Cutout Style"
+    },    
+    {
+        "file_name": "FLUX-dev-lora-add_details.safetensors",
+        "description": "This is a LoRA trained on FLUX.1-dev for enhancing realism and details, achieveing natural skin. There is no essential trigger words. The recommended scale is 1.0. The scale be can be negative.",
+        "activation_keyword": ""
+    },       
+    {
+        "file_name": "FLUX-dev-lora-Text-Poster.safetensors",
+        "description": "This is a LoRA (Text Poster) trained on FLUX.1-dev for artistic text poster",
+        "activation_keyword": "Text poster"
+    },     
+    {
+        "file_name": "flux-lora-vintage-tarot.safetensors",
+        "description": "This LoRA model has been trained on the Rider–Waite tarot deck, allowing you to create unique tarot card images inspired by vintage decks and blend traditional tarot symbolism with contemporary elements.",
+        "activation_keyword": "tarot card"
+    },               
+    {
+        "file_name": "pytorch_lora_weights.safetensors",
+        "description": "Ultra realism lora",
+        "activation_keyword": ""
+    },               
+    {
+        "file_name": "vinz_first_flux_lora_v1.safetensors",
+        "description": "Images de Vincent",
+        "activation_keyword": "VinZ portrait"
+    }
+]
