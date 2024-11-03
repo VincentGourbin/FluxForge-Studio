@@ -6,6 +6,9 @@ import os
 import random
 import json
 import sqlite3
+import time
+from PIL import Image
+
 
 # Variables globales pour stocker le modèle chargé
 current_model_alias = None
@@ -76,15 +79,28 @@ def generate_image(
     controlnet_image_path,
     controlnet_strength,
     controlnet_save_canny,
-    *args  # Ceci capturera les valeurs des cases à cocher et des scales pour les LoRA
+    progress=gr.Progress(),
+    *args
 ):
     global current_model_alias, current_quantize, current_path, current_lora_paths, current_lora_scales, flux_model, current_model_type
 
-    # Traitement du seed
+    # Création du dossier pour les images intermédiaires
+    stepwise_dir = Path("stepwise_output")
+    stepwise_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Nettoyer le dossier des images précédentes
+    for file in stepwise_dir.glob("*.png"):
+        try:
+            os.remove(file)
+        except:
+            pass
+
+    # Traitement des paramètres (garder le code existant pour les paramètres)
     if seed is None or int(seed) == 0:
         seed = random.randint(1, 2**32 - 1)
     else:
         seed = int(seed)
+
     height = int(height)
     width = int(width)
     steps = max(1, int(steps))  # Assurer que steps >= 1
@@ -180,6 +196,17 @@ def generate_image(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_filename = output_dir / f"{timestamp.strftime('%Y%m%d_%H%M%S')}_{seed}.png"
 
+    def step_callback(step_path):
+        if os.path.exists(step_path):
+            try:
+                img = Image.open(step_path)
+                progress(step, steps)  # Mise à jour de la barre de progression
+                return img
+            except:
+                pass
+        return None
+
+    # Générer l'image
     # Générer l'image
     if use_controlnet:
         image = flux_model.generate_image(
@@ -189,14 +216,15 @@ def generate_image(
             controlnet_image_path=controlnet_image_path.name,
             controlnet_save_canny=controlnet_save_canny,
             config=config,
+            stepwise_output_dir=stepwise_dir
         )
     else:
         image = flux_model.generate_image(
             seed=seed,
             prompt=prompt,
             config=config,
+            stepwise_output_dir=stepwise_dir
         )
-        # Sauvegarder l'image avec les métadonnées si demandé
         image.save(path=str(output_filename), export_json_metadata=metadata)
 
     # Enregistrer les paramètres et le chemin de l'image dans la base de données
@@ -370,6 +398,7 @@ with gr.Blocks() as demo:
         btn = gr.Button("Générer l'image")
         output_image = gr.Image(label="Image générée")
 
+        # Définir les entrées
         inputs = [
             prompt,
             model_alias,
@@ -386,7 +415,13 @@ with gr.Blocks() as demo:
             controlnet_save_canny,
         ] + lora_checkboxes + lora_scales
 
-        btn.click(fn=generate_image, inputs=inputs, outputs=output_image)
+        # Configuration du clic sur le bouton avec mise à jour en direct
+        btn.click(
+            fn=generate_image,
+            inputs=inputs,
+            outputs=output_image,
+            show_progress=True
+        )
 
     with gr.Tab("Historique"):
         with gr.Column():
@@ -414,4 +449,4 @@ with gr.Blocks() as demo:
         refresh_history_button.click(fn=refresh_history, inputs=[], outputs=history_gallery)
         delete_button.click(fn=delete_selected_image, inputs=selected_image_index, outputs=[history_info, history_gallery, selected_image_index])
 
-demo.launch()
+demo.queue().launch()
