@@ -58,6 +58,21 @@
         "file_name": "Ascii_Art-Flux.safetensors",
         "description": "Ascii Art",
         "activation_keyword": "ascii"
+    },               
+    {
+        "file_name": "FLUX-dev-lora-Logo-Design.safetensors",
+        "description": "This is a LoRA (Logo-Design) trained on FLUX.1-dev by CJim on Shakker AI",
+        "activation_keyword": "wablogo, logo, Minimalist"
+    },               
+    {
+        "file_name": "FLUX-dev-lora-children-simple-sketch.safetensors",
+        "description": "This is a LoRA trained on FLUX.1-dev for Children's Simple-Sketch by Hongke on Shakker AI.",
+        "activation_keyword": "sketched style"
+    },               
+    {
+        "file_name": "FLUX-dev-lora-MiaoKa-Yarn-World.safetensors",
+        "description": "This is a LoRA (MiaoKa-Yarn-World) trained on FLUX.1-dev by MIAOKA for creating wool yarn art. It is capable of producing intricate and realistic woolen textures and patterns while maintaining high performance.",
+        "activation_keyword": "mkym this is made of wool"
     }
     
 ]
