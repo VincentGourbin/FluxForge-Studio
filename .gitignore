@@ -33,6 +33,8 @@ Temporary Items
 # Fichiers de sauvegarde iCloud
 *.icloud
 
+#Dossier de cache 
+__pycache__
 
 .gradio
 /lora

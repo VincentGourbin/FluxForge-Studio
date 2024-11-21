@@ -1,9 +1,6 @@
 import os
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 from PIL import Image
-import torch
-from torchvision import transforms
-from transformers import AutoModelForImageSegmentation
 import gradio as gr
 from mflux import Flux1, Flux1Controlnet, Config, ConfigControlnet, ModelConfig
 import datetime
@@ -11,70 +8,18 @@ from pathlib import Path
 import os
 import random
 import json
-import sqlite3
-import time
 from PIL import Image
-import asyncio
-import ollama
-from ollama import AsyncClient
-import threading
-import queue
+# Importer les autres scripts
+import config  # Assurez-vous d'importer le module config
+from database import init_db, save_image_info, load_history, get_image_details, delete_image
+from background_remover import load_background_removal_model, remove_background
+from prompt_enhancer import enhance_prompt, update_image_input_visibility, update_button_label, models_info, model_names
 
-
-# Variables globales pour stocker le modèle chargé
-current_model_alias = None
-current_quantize = None
-current_path = None
-current_lora_paths = None
-current_lora_scales = None
-current_model_type = None  # 'standard' ou 'controlnet'
-flux_model = None
-lora_data = []  # Stockera les informations des LoRA
-
-# Chemin vers le dossier contenant les fichiers LoRA
-lora_directory = 'lora'
-
-# Chemin vers le fichier JSON contenant les informations des LoRA
-lora_json_file = 'lora_info.json'
-
-# Lire les informations des LoRA depuis le fichier JSON
-with open(lora_json_file, 'r') as f:
-    lora_data = json.load(f)
-
-# Chemin vers la base de données SQLite
-db_path = 'generated_images.db'
-
-# Fonction pour initialiser la base de données
-def init_db():
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    # Création de la table pour stocker les images et les paramètres
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS images (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            seed INTEGER,
-            prompt TEXT,
-            model_alias TEXT,
-            quantize INTEGER,
-            steps INTEGER,
-            guidance REAL,
-            height INTEGER,
-            width INTEGER,
-            path TEXT,
-            controlnet_image_path TEXT,
-            controlnet_strength REAL,
-            controlnet_save_canny BOOLEAN,
-            lora_paths TEXT,
-            lora_scales TEXT,
-            output_filename TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-# Appel de la fonction pour initialiser la base de données
+# Initialiser la base de données
 init_db()
+
+# Chargement du modèle de suppression d'arrière-plan
+modelbgrm = load_background_removal_model()
 
 def generate_image(
     prompt,
@@ -93,7 +38,8 @@ def generate_image(
     progress=gr.Progress(),
     *args
 ):
-    global current_model_alias, current_quantize, current_path, current_lora_paths, current_lora_scales, flux_model, current_model_type
+    # Accéder aux variables via le module config
+    # Exemple : config.current_model_alias
 
     # Création du dossier pour les images intermédiaires
     stepwise_dir = Path("stepwise_output")
@@ -106,7 +52,7 @@ def generate_image(
         except:
             pass
 
-    # Traitement des paramètres (garder le code existant pour les paramètres)
+    # Traitement des paramètres
     if seed is None or int(seed) == 0:
         seed = random.randint(1, 2**32 - 1)
     else:
@@ -124,7 +70,7 @@ def generate_image(
     controlnet_save_canny = bool(controlnet_save_canny)
 
     # Traitement des sélections et des scales pour les LoRA
-    num_lora = len(lora_data)
+    num_lora = len(config.lora_data)
     lora_checkbox_values = args[:num_lora]
     lora_scale_values = args[num_lora:2*num_lora]
 
@@ -132,23 +78,21 @@ def generate_image(
     lora_scales_list = []
     for idx, (selected, scale) in enumerate(zip(lora_checkbox_values, lora_scale_values)):
         if selected:
-            lora_info = lora_data[idx]
+            lora_info = config.lora_data[idx]
             lora_file = lora_info['file_name']
-            lora_path = os.path.join(lora_directory, lora_file)
+            lora_path = os.path.join(config.lora_directory, lora_file)
             lora_paths_list.append(lora_path)
             lora_scales_list.append(float(scale))
             # Ajouter le mot-clé d'activation au prompt
             prompt = f"{lora_info['activation_keyword']}, {prompt}"
 
-
-    print(prompt)
     # Déterminer si ControlNet est utilisé
     use_controlnet = controlnet_image_path is not None
 
     # Vérifier si le modèle doit être rechargé
-    if (model_alias != current_model_alias) or (quantize != current_quantize) or (path != current_path) or \
-        (lora_paths_list != current_lora_paths) or (lora_scales_list != current_lora_scales) or (flux_model is None) or \
-        (use_controlnet != (current_model_type == 'controlnet')):
+    if (model_alias != config.current_model_alias) or (quantize != config.current_quantize) or (path != config.current_path) or \
+        (lora_paths_list != config.current_lora_paths) or (lora_scales_list != config.current_lora_scales) or (config.flux_model is None) or \
+        (use_controlnet != (config.current_model_type == 'controlnet')):
 
         # Charger la configuration du modèle
         if path:
@@ -177,24 +121,29 @@ def generate_image(
             current_model_type = 'standard'
 
         # Mettre à jour les paramètres du modèle courant
-        current_model_alias = model_alias
-        current_quantize = quantize
-        current_path = path
-        current_lora_paths = lora_paths_list
-        current_lora_scales = lora_scales_list
+        config.current_model_alias = model_alias
+        config.current_quantize = quantize
+        config.current_path = path
+        config.current_lora_paths = lora_paths_list
+        config.current_lora_scales = lora_scales_list
+        config.current_model_type = current_model_type
+        config.flux_model = flux_model
+    else:
+        # Si le modèle n'a pas changé, utilisez le modèle existant
+        flux_model = config.flux_model
+        current_model_type = config.current_model_type
 
     # Construire la configuration
     if use_controlnet:
-        config = ConfigControlnet(
+        config_obj = ConfigControlnet(
             num_inference_steps=steps,
             guidance=guidance,
             height=height,
             width=width,
             controlnet_strength=controlnet_strength,
         )
-                
     else:
-        config = Config(
+        config_obj = Config(
             num_inference_steps=steps,
             guidance=guidance,
             height=height,
@@ -218,29 +167,21 @@ def generate_image(
             output=str(output_filename),
             controlnet_image_path=controlnet_image_path.name,
             controlnet_save_canny=controlnet_save_canny,
-            config=config,
+            config=config_obj,
             stepwise_output_dir=stepwise_dir
         )
     else:
         image = flux_model.generate_image(
             seed=seed,
             prompt=prompt,
-            config=config,
+            config=config_obj,
             stepwise_output_dir=stepwise_dir
         )
         
     image.save(path=str(output_filename), export_json_metadata=metadata)
 
     # Enregistrer les paramètres et le chemin de l'image dans la base de données
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO images (
-            timestamp, seed, prompt, model_alias, quantize, steps, guidance,
-            height, width, path, controlnet_image_path, controlnet_strength,
-            controlnet_save_canny, lora_paths, lora_scales, output_filename
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
+    save_image_info((
         timestamp_str,
         seed,
         prompt,
@@ -258,77 +199,33 @@ def generate_image(
         json.dumps(lora_scales_list),
         str(output_filename)
     ))
-    conn.commit()
-    conn.close()
 
     # Retourner l'image pour affichage dans Gradio
     return image.image  # Retourner l'image PIL
+
 
 def update_guidance_visibility(model_alias):
     if model_alias == "dev":
         return gr.update(visible=True)
     else:
         return gr.update(visible=False)
-
-# Fonction pour charger l'historique depuis la base de données
-def load_history():
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, output_filename FROM images ORDER BY timestamp DESC')
-    records = cursor.fetchall()
-    conn.close()
-
-    images = []
-    for record in records:
-        image_id, output_filename = record
-        if os.path.exists(output_filename):
-            images.append(output_filename)
-    return images
-
+    
+# Fonction pour afficher les détails de l'image sélectionnée
 def show_image_details(evt: gr.SelectData, selected_image_index):
     index = evt.index
     selected_image_index = index
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM images ORDER BY timestamp DESC')
-    records = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    conn.close()
+    details_text = get_image_details(index)
+    return details_text, selected_image_index
 
-    if 0 <= index < len(records):
-        record = records[index]
-        details = dict(zip(columns, record))
-        # Formater les détails pour affichage
-        details_text = '\n'.join([f"{key}: {value}" for key, value in details.items()])
-        return details_text, selected_image_index
-    else:
-        return "Aucune information disponible pour cette image.", selected_image_index
 
 def delete_selected_image(selected_image_index):
     if selected_image_index is None:
         return gr.update(value="Veuillez sélectionner une image à supprimer."), gr.update(), selected_image_index
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM images ORDER BY timestamp DESC')
-    records = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
+    success, message = delete_image(selected_image_index)
 
-    if 0 <= selected_image_index < len(records):
-        record = records[selected_image_index]
-        image_id = record[columns.index('id')]
-        output_filename = record[columns.index('output_filename')]
-
-        # Supprimer le fichier image du système de fichiers
-        if os.path.exists(output_filename):
-            os.remove(output_filename)
-
-        # Supprimer l'enregistrement de la base de données
-        cursor.execute('DELETE FROM images WHERE id = ?', (image_id,))
-        conn.commit()
-        conn.close()
-
+    if success:
         # Réinitialiser l'index sélectionné
         selected_image_index = None
 
@@ -336,275 +233,20 @@ def delete_selected_image(selected_image_index):
         images = load_history()
 
         # Retourner le message de succès, la galerie mise à jour et l'index réinitialisé
-        return "Image supprimée avec succès.", images, selected_image_index
+        return message, images, selected_image_index
     else:
-        conn.close()
-        return "Aucune image correspondante trouvée.", gr.update(), selected_image_index
-
+        return message, gr.update(), selected_image_index
 # Fonction pour mettre à jour l'historique
 def refresh_history():
     images = load_history()
     return images
 
-def enhance_prompt(selected_model, input_text, input_image):
-    families = models_info.get(selected_model, [])
-    if not selected_model or ((len(families) > 1 or 'clip' in families) and not input_image) or (not input_text and not input_image):
-        yield "Veuillez sélectionner un modèle et saisir du texte ou insérer une image."
-        return
-
-    # Gérer les modèles qui acceptent une image en entrée
-    if (len(families) > 1 or 'clip' in families):
-        if input_image is not None:
-            # Étape 1 : Analyser l'image et générer une description
-            analysis_prompt = """
-            You are a prompt creation assistant for FLUX, an AI image generation model. Your mission is to help the user craft a detailed and optimized prompt by following these steps:
-
-            Analyze this picture and make a description in order to generate a similar image with my FLUX.1 diffusion model.
-
-            Be very explicit on the different graphics styles.
-
-            1. **Understanding the images's details**:
-                - Be very explicit on the different graphics styles (photorealist, comics, manga, drawing .....).
-                - Be very explicit on the different color schemes
-
-            2. **Enhancing Details**:
-                - Enrich the basic idea with vivid, specific, and descriptive elements.
-                - Include factors such as lighting, mood, style, perspective, and specific objects or elements the user wants in the scene.
-
-            3. **Formatting the Prompt**:
-                - Structure the enriched description into a clear, precise, and effective prompt.
-                - Ensure the prompt is tailored for high-quality output from the FLUX model, considering its strengths (e.g., photorealistic details, fine anatomy, or artistic styles).
-
-            4. **Translations (if necessary)**:
-                - If the user provides a request in another language, translate it into English for the prompt and transcribe it back into their language for clarity.
-
-            Use this process to compose a detailed and coherent prompt. Ensure the final prompt is clear and complete, and write your response in English.
-
-            Ensure that the final part is a synthesized version of the prompt that I can use in FLUX         
-            """
-
-            async def analyze_image():
-                client = AsyncClient()
-
-                if 'mllama' in families:
-                    # Préparer les messages avec l'image
-                    messages = [{
-                        'role': 'user',
-                        'content': analysis_prompt,
-                        'images': [input_image]
-                    }]
-                else:
-                    # Préparer les messages avec l'image
-                    messages = [{
-                        'role': 'user',
-                        'content': analysis_prompt,
-                        'image': input_image
-                    }]
-
-                # Initialize content accumulator
-                content = ""
-                # Async iteration over the streamed response
-                async for part in await client.chat(model=selected_model, messages=messages, stream=True):
-                    delta = part['message']['content']
-                    content += delta
-                    yield content  # Yield the accumulated content
-
-            # Fonction pour exécuter le traitement asynchrone
-            async def process_prompts():
-                try:
-                    # Analyser l'image et obtenir la description
-                    async for generated_description in analyze_image():
-                        output_queue.put(generated_description)
-                except Exception as e:
-                    output_queue.put(f"An error occurred: {e}")
-                finally:
-                    output_queue.put(None)  # Indiquer la fin du processus
-
-            # Utiliser une file d'attente pour communiquer entre l'async et le sync
-            output_queue = queue.Queue()
-
-            def run_async_loop(loop, coro):
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(coro)
-
-            # Démarrer la fonction asynchrone dans un thread séparé
-            new_loop = asyncio.new_event_loop()
-            t = threading.Thread(target=run_async_loop, args=(new_loop, process_prompts()))
-            t.start()
-
-            while True:
-                output = output_queue.get()
-                if output is None:
-                    break
-                yield output
-
-        else:
-            yield "Veuillez fournir une image pour ce modèle."
-            return
-    else:
-        # Modèles sans image en entrée
-        guide_instructions = """
-        You are a prompt creation assistant for FLUX, an AI image generation model. Your mission is to help the user craft a detailed and optimized prompt by following these steps:
-
-        1. **Understanding the User's Needs**:
-            - The user provides a basic idea, concept, or description.
-            - Analyze their input to determine essential details and nuances.
-
-        2. **Enhancing Details**:
-            - Enrich the basic idea with vivid, specific, and descriptive elements.
-            - Include factors such as lighting, mood, style, perspective, and specific objects or elements the user wants in the scene.
-
-        3. **Formatting the Prompt**:
-            - Structure the enriched description into a clear, precise, and effective prompt.
-            - Ensure the prompt is tailored for high-quality output from the FLUX model, considering its strengths (e.g., photorealistic details, fine anatomy, or artistic styles).
-
-        4. **Translations (if necessary)**:
-            - If the user provides a request in another language, translate it into English for the prompt and transcribe it back into their language for clarity.
-
-        Use this process to compose a detailed and coherent prompt. Ensure the final prompt is clear and complete, and write your response in English.
-
-        Ensure that the final part is a synthesized version of the prompt.
-        """
-
-        prompt_for_llm = f"{guide_instructions}\n\nUser input: \"{input_text}\"\n\nGenerated prompt:"
-
-        async def run_chat():
-            client = AsyncClient()
-            message = {'role': 'user', 'content': prompt_for_llm}
-            content = ""
-            # Attendre la coroutine client.chat() avant de l'utiliser dans async for
-            async for part in await client.chat(model=selected_model, messages=[message], stream=True):
-                delta = part['message']['content']
-                content += delta
-                yield content
-
-        output_queue = queue.Queue()
-
-        def run_async_loop(loop, coro):
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(coro)
-
-        async def async_runner():
-            try:
-                async for output in run_chat():
-                    output_queue.put(output)
-            finally:
-                output_queue.put(None)
-
-        new_loop = asyncio.new_event_loop()
-        t = threading.Thread(target=run_async_loop, args=(new_loop, async_runner()))
-        t.start()
-
-        while True:
-            output = output_queue.get()
-            if output is None:
-                break
-            yield output
-
-# Fonction pour synthétiser le prompt
-def synthesize_prompt(enhanced_text, selected_model):
-    if not enhanced_text or not selected_model:
-        yield "Veuillez fournir un texte à synthétiser et sélectionner un modèle."
-        return
-
-    # Prompt pour la synthétisation
-    synthesis_prompt = f"As an assistant, synthesize this prompt generation in 5 lines:\n\n{enhanced_text}"
-
-    async def run_chat():
-        client = AsyncClient()
-        message = {'role': 'user', 'content': synthesis_prompt}
-        content = ""
-        async for part in await client.chat(model=selected_model, messages=[message], stream=True):
-            delta = part['message']['content']
-            content += delta
-            yield content
-
-    output_queue = queue.Queue()
-
-    def run_async_loop(loop, coro):
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(coro)
-
-    async def async_runner():
-        try:
-            async for output in run_chat():
-                output_queue.put(output)
-        finally:
-            output_queue.put(None)
-
-    new_loop = asyncio.new_event_loop()
-    t = threading.Thread(target=run_async_loop, args=(new_loop, async_runner()))
-    t.start()
-
-    while True:
-        output = output_queue.get()
-        if output is None:
-            break
-        yield output
-
-
-
-# Fonction pour mettre à jour la visibilité de la zone de dépôt d'image
-def update_image_input_visibility(selected_model):
-    families = models_info.get(selected_model, [])
-    if len(families) > 1 or 'clip' in families:
-        return gr.update(visible=True)
-    else:
-        return gr.update(visible=False)
-
-def update_button_label(selected_model):
-    families = models_info.get(selected_model, [])
-    if len(families) > 1 or 'clip' in families:
-        # Modèle qui accepte une image en entrée
-        return gr.update(value="Analyser l'image")
-    else:
-        return gr.update(value="Améliorer le prompt")
-
-def remove_background(input_image):
-    image = input_image.convert("RGB")
-    input_images = transform_image(image).unsqueeze(0).to(device)
-    
-    with torch.no_grad():
-        preds = modelbgrm(input_images)[-1].sigmoid().cpu()
-    pred = preds[0].squeeze()
-    pred_pil = transforms.ToPILImage()(pred)
-    mask = pred_pil.resize(image.size)
-    image.putalpha(mask)
-    
-    return image
+def remove_background_wrapper(input_image):
+    return remove_background(input_image, modelbgrm)
 
 # Définir l'interface Gradio
 model_options = ["schnell", "dev"]
 quantize_options = [4, 8, None]
-
-# Obtenir la liste des modèles disponibles avec ollama
-try:
-    ollama_models = ollama.list()
-    models_info = {}
-    for model in ollama_models['models']:
-        name = model['name']
-        families = model['details'].get('families', [])
-        models_info[name] = families
-    model_names = list(models_info.keys())
-except Exception as e:
-    models_info = {}
-    model_names = []
-    print(f"Erreur lors de la récupération des modèles ollama : {e}")
-
-
-modelbgrm = AutoModelForImageSegmentation.from_pretrained('briaai/RMBG-2.0', trust_remote_code=True)
-torch.set_float32_matmul_precision(['high', 'highest'][0])
-device = 'mps' if torch.backends.mps.is_available() else 'cpu'
-modelbgrm.to(device)
-modelbgrm.eval()
-
-image_size = (1024, 1024)
-transform_image = transforms.Compose([
-    transforms.Resize(image_size),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
-
 
 with gr.Blocks() as demo:
     gr.Markdown("# Générateur d'images mflux")
@@ -615,8 +257,8 @@ with gr.Blocks() as demo:
         gr.Markdown("## Paramètres principaux")
 
         with gr.Row():
-            model_alias = gr.Dropdown(label="Modèle", choices=model_options, value="schnell")
-            quantize = gr.Dropdown(label="Quantize", choices=[str(q) for q in quantize_options], value="8")
+            model_alias = gr.Dropdown(label="Modèle", choices=config.model_options, value="schnell")
+            quantize = gr.Dropdown(label="Quantize", choices=[str(q) for q in config.quantize_options], value="8")
             steps = gr.Number(label="Nombre d'étapes d'inférence", value=4, precision=0, minimum=1)
             seed = gr.Number(label="Seed", value=0, precision=0)
             metadata = gr.Checkbox(label="Exporter les métadonnées", value=True)
@@ -635,7 +277,7 @@ with gr.Blocks() as demo:
         with gr.Accordion(""):
             lora_checkboxes = []
             lora_scales = []
-            for lora in lora_data:
+            for lora in config.lora_data:
                 # Afficher la description et le mot-clé d'activation
                 gr.Markdown(f"**Description**: {lora['description']}")
                 gr.Markdown(f"**Mot-clé d'activation**: {lora['activation_keyword']}")
@@ -738,11 +380,11 @@ with gr.Blocks() as demo:
             output_image = gr.Image(label="Image sans arrière-plan")
             
         remove_bg_button.click(
-            fn=remove_background,
+            fn=remove_background_wrapper,
             inputs=input_image,
             outputs=output_image
         )
-        
+            
     with gr.Tab("Historique"):
         with gr.Column():
             history_gallery = gr.Gallery(
