@@ -41,3 +41,5 @@ __pycache__
 /outputimage
 generated_images.db
 /stepwise_output
+/_example
+/train
