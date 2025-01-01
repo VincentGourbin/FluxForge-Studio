@@ -38,6 +38,11 @@
         "file_name": "vinz_first_flux_lora_v1.safetensors",
         "description": "Images de Vincent",
         "activation_keyword": "VinZ portrait"
+    },              
+    {
+        "file_name": "0001800_adapter.safetensors",
+        "description": "Portrait of Gauthier",
+        "activation_keyword": "Gauthier"
     },               
     {
         "file_name": "duye1024v1_rank16_bf16-step00960.safetensors",
