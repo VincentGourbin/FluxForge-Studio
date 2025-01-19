@@ -40,6 +40,11 @@
         "activation_keyword": "VinZ portrait"
     },              
     {
+        "file_name": "lorik_adapter.safetensors",
+        "description": "Images de Lorik",
+        "activation_keyword": "Lorik"
+    },             
+    {
         "file_name": "0001800_adapter.safetensors",
         "description": "Portrait of Gauthier",
         "activation_keyword": "Gauthier"
