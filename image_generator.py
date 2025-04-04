@@ -7,7 +7,7 @@ from PIL import Image
 
 import config
 from database import save_image_info
-from mflux import Flux1, Flux1Controlnet, Config, ConfigControlnet, ModelConfig
+from mflux import Flux1, Flux1Controlnet, Config, ModelConfig
 import gradio as gr
 
 class ImageGenerator:
@@ -100,7 +100,7 @@ class ImageGenerator:
             if path:
                 model_config = ModelConfig.from_pretrained(path=path)
             else:
-                model_config = ModelConfig.from_alias(alias=model_alias)
+                model_config = ModelConfig.from_name(model_name=model_alias, base_model=None)
     
             # Charger le modèle approprié
             if use_controlnet:
@@ -136,22 +136,13 @@ class ImageGenerator:
             current_model_type = self.current_model_type
     
         # Construire la configuration
-        if use_controlnet:
-            config_obj = ConfigControlnet(
-                num_inference_steps=steps,
-                guidance=guidance,
-                height=height,
-                width=width,
-                controlnet_strength=controlnet_strength,
-            )
-        else:
-            config_obj = Config(
-                num_inference_steps=steps,
-                guidance=guidance,
-                height=height,
-                width=width,
-            )
-    
+        config_obj = Config(
+            num_inference_steps=steps,
+            guidance=guidance,
+            height=height,
+            width=width,
+            controlnet_strength=controlnet_strength if use_controlnet else None,
+        )
         # Obtenir la date et l'heure actuelles
         timestamp = datetime.datetime.now()
         timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
@@ -160,26 +151,22 @@ class ImageGenerator:
         output_dir = Path("outputimage")
         output_dir.mkdir(parents=True, exist_ok=True)
         output_filename = output_dir / f"{timestamp.strftime('%Y%m%d_%H%M%S')}_{seed}.png"
-    
-        # Générer l'image
+        # Générer l'image avec ou sans ControlNet
         if use_controlnet:
             image = flux_model.generate_image(
                 seed=seed,
                 prompt=prompt,
-                output=str(output_filename),
                 controlnet_image_path=controlnet_image_path.name,
-                controlnet_save_canny=controlnet_save_canny,
-                config=config_obj,
-                stepwise_output_dir=stepwise_dir
+                config=config_obj
             )
         else:
             image = flux_model.generate_image(
                 seed=seed,
                 prompt=prompt,
-                config=config_obj,
-                stepwise_output_dir=stepwise_dir
+                config=config_obj
             )
-            
+
+        # Sauvegarder explicitement l'image générée
         image.save(path=str(output_filename), export_json_metadata=metadata)
     
         # Enregistrer les paramètres et le chemin de l'image dans la base de données
