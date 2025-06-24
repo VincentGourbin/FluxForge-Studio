@@ -45,3 +45,5 @@ generated_images.db
 /train
 /temp_images
 /temp_train
+
+CLAUDE.md

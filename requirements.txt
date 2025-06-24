@@ -1,0 +1,7 @@
+gradio
+torch
+torchvision
+transformers
+pillow
+ollama
+mflux

@@ -1,48 +1,80 @@
 # config.py
+"""
+Configuration module for mflux-gradio application.
+Handles global settings, device configuration, LoRA data loading, and Ollama model discovery.
+"""
+
 import os
-# Configuration de l'environnement
+# Enable MPS fallback for Apple Silicon compatibility
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 import json
 import torch
 
 
-# Configuration de l'appareil (CPU, GPU, MPS)
+# Device configuration (CPU, GPU, MPS for Apple Silicon)
 device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 
-# Variables globales pour stocker le modèle chargé
+# Global variables for storing the currently loaded model state
 current_model_alias = None
 current_quantize = None
 current_path = None
 current_lora_paths = None
 current_lora_scales = None
-current_model_type = None  # 'standard' ou 'controlnet'
+current_model_type = None  # 'standard' or 'controlnet'
 flux_model = None
 
-# Chemin vers le dossier contenant les fichiers LoRA
+# Path to the directory containing LoRA files
 lora_directory = 'lora'
 
-# Chemin vers le fichier JSON contenant les informations des LoRA
+# Path to the JSON file containing LoRA information
 lora_json_file = 'lora_info.json'
 
-# Lire les informations des LoRA depuis le fichier JSON
-with open(lora_json_file, 'r') as f:
-    lora_data = json.load(f)
+def load_lora_data():
+    """
+    Load LoRA model information from the JSON configuration file.
+    
+    Returns:
+        list: List of dictionaries containing LoRA model metadata
+              (file_name, description, activation_keyword)
+    """
+    try:
+        with open(lora_json_file, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"Warning: {lora_json_file} not found. No LoRA models will be available.")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"Error parsing {lora_json_file}: {e}")
+        return []
 
-# Options de modèle et de quantification
+# Load LoRA information from JSON file
+lora_data = load_lora_data()
+
+# Model and quantization options
 model_options = ["schnell", "dev"]
 quantize_options = [4, 8, None]
 
-# Obtenir la liste des modèles disponibles avec Ollama
-try:
-    import ollama
-    ollama_models = ollama.list()
-    models_info = {}
-    for model in ollama_models['models']:
-        name = model['name']
-        families = model['details'].get('families', [])
-        models_info[name] = families
-    model_names = list(models_info.keys())
-except Exception as e:
-    models_info = {}
-    model_names = []
-    print(f"Erreur lors de la récupération des modèles Ollama : {e}")
+def get_ollama_models():
+    """
+    Retrieve the list of available models from Ollama.
+    
+    Returns:
+        tuple: (models_info: dict, model_names: list) containing model metadata
+               and list of available model names
+    """
+    try:
+        import ollama
+        ollama_models = ollama.list()
+        models_info = {}
+        for model in ollama_models['models']:
+            name = model['name']
+            families = model['details'].get('families', [])
+            models_info[name] = families
+        model_names = list(models_info.keys())
+        return models_info, model_names
+    except Exception as e:
+        print(f"Erreur lors de la récupération des modèles Ollama : {e}")
+        return {}, []
+
+# Get available Ollama models
+models_info, model_names = get_ollama_models()

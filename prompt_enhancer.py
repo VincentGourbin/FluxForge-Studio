@@ -1,4 +1,11 @@
 # prompt_enhancer.py
+"""
+Ollama integration module for prompt enhancement with support for vision models.
+
+This module provides functionality to enhance prompts for FLUX image generation
+using various Ollama models, including vision-capable models that can analyze
+images and text-only models for prompt refinement.
+"""
 
 import asyncio
 import threading
@@ -7,30 +14,117 @@ import ollama
 from ollama import AsyncClient
 import gradio as gr
 
-# Obtenir la liste des modèles disponibles avec Ollama
-try:
-    ollama_models = ollama.list()
-    models_info = {}
-    for model in ollama_models['models']:
-        name = model['name']
-        families = model['details'].get('families', [])
-        models_info[name] = families
-    model_names = list(models_info.keys())
-except Exception as e:
-    models_info = {}
-    model_names = []
-    print(f"Erreur lors de la récupération des modèles Ollama : {e}")
+# Global model information storage
+models_info = {}
+model_names = []
+
+def _initialize_ollama_models():
+    """
+    Initialize and retrieve available Ollama models with their capabilities.
+    
+    Populates the global models_info dictionary with model names as keys
+    and their family capabilities as values. Also creates a list of model names.
+    
+    Globals:
+        models_info (dict): Dictionary mapping model names to their families
+        model_names (list): List of available model names
+    """
+    global models_info, model_names
+    
+    try:
+        ollama_models = ollama.list()
+        models_info = {}
+        for model in ollama_models['models']:
+            name = model['name']
+            families = model['details'].get('families', [])
+            models_info[name] = families
+        model_names = list(models_info.keys())
+    except Exception as e:
+        models_info = {}
+        model_names = []
+        print(f"Erreur lors de la récupération des modèles Ollama : {e}")
+
+def _run_async_loop(loop, coro):
+    """
+    Helper function to run async coroutines in a separate thread.
+    
+    Args:
+        loop (asyncio.AbstractEventLoop): The event loop to use
+        coro (coroutine): The coroutine to execute
+    """
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(coro)
+
+def _async_to_sync_bridge(async_generator_func):
+    """
+    Bridge async generators to sync generators using threading and queues.
+    
+    Args:
+        async_generator_func (callable): Async generator function to execute
+        
+    Yields:
+        Any: Values yielded by the async generator
+    """
+    output_queue = queue.Queue()
+    
+    async def async_runner():
+        try:
+            async for output in async_generator_func():
+                output_queue.put(output)
+        except Exception as e:
+            output_queue.put(f"An error occurred: {e}")
+        finally:
+            output_queue.put(None)  # Signal completion
+    
+    # Run async function in separate thread
+    new_loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=_run_async_loop, args=(new_loop, async_runner()))
+    thread.start()
+    
+    # Yield results as they become available
+    while True:
+        output = output_queue.get()
+        if output is None:
+            break
+        yield output
+
+# Initialize models on module import
+_initialize_ollama_models()
 
 def enhance_prompt(selected_model, input_text, input_image):
+    """
+    Enhance prompts for FLUX image generation using Ollama models.
+    
+    This function handles both vision-capable models (that can analyze images)
+    and text-only models for prompt enhancement. It validates inputs and
+    routes to appropriate processing based on model capabilities.
+    
+    Args:
+        selected_model (str): Name of the Ollama model to use
+        input_text (str): Text input for prompt enhancement
+        input_image (str|None): Path to image file for vision models
+        
+    Yields:
+        str: Enhanced prompt text or error messages as they are generated
+        
+    Returns:
+        None: Function is a generator that yields results
+        
+    Raises:
+        Yields error messages instead of raising exceptions
+    """
+    # Get model capabilities
     families = models_info.get(selected_model, [])
+    
+    # Validate inputs based on model requirements
     if not selected_model or ((len(families) > 1 or 'clip' in families) and not input_image) or (not input_text and not input_image):
         yield "Veuillez sélectionner un modèle et saisir du texte ou insérer une image."
         return
 
-    # Gérer les modèles qui acceptent une image en entrée
+    # Handle vision-capable models (models that accept image input)
     if (len(families) > 1 or 'clip' in families):
         if input_image is not None:
-            # Étape 1 : Analyser l'image et générer une description
+            # Define the image analysis prompt for FLUX optimization
             analysis_prompt = """
             You are a prompt creation assistant for FLUX, an AI image generation model. Your mission is to help the user craft a detailed and optimized prompt by following these steps:
 
@@ -59,65 +153,46 @@ def enhance_prompt(selected_model, input_text, input_image):
             """
 
             async def analyze_image():
+                """
+                Analyze image using vision-capable Ollama model.
+                
+                Creates appropriate message format based on model family
+                (mllama uses 'images' array, others use 'image' field).
+                
+                Yields:
+                    str: Accumulated analysis content as it's generated
+                """
                 client = AsyncClient()
 
+                # Format message based on model family
                 if 'mllama' in families:
-                    # Préparer les messages avec l'image
                     messages = [{
                         'role': 'user',
                         'content': analysis_prompt,
                         'images': [input_image]
                     }]
                 else:
-                    # Préparer les messages avec l'image
                     messages = [{
                         'role': 'user',
                         'content': analysis_prompt,
                         'image': input_image
                     }]
 
-                # Accumulateur de contenu
+                # Stream response and accumulate content
                 content = ""
-                # Itération asynchrone sur la réponse en streaming
                 async for part in await client.chat(model=selected_model, messages=messages, stream=True):
                     delta = part['message']['content']
                     content += delta
-                    yield content  # Renvoie le contenu accumulé
+                    yield content
 
-            # Fonction pour exécuter le traitement asynchrone
-            async def process_prompts():
-                try:
-                    # Analyser l'image et obtenir la description
-                    async for generated_description in analyze_image():
-                        output_queue.put(generated_description)
-                except Exception as e:
-                    output_queue.put(f"An error occurred: {e}")
-                finally:
-                    output_queue.put(None)  # Indiquer la fin du processus
-
-            # Utiliser une file d'attente pour communiquer entre l'async et le sync
-            output_queue = queue.Queue()
-
-            def run_async_loop(loop, coro):
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(coro)
-
-            # Démarrer la fonction asynchrone dans un thread séparé
-            new_loop = asyncio.new_event_loop()
-            t = threading.Thread(target=run_async_loop, args=(new_loop, process_prompts()))
-            t.start()
-
-            while True:
-                output = output_queue.get()
-                if output is None:
-                    break
-                yield output
+            # Use the async-to-sync bridge to handle the image analysis
+            yield from _async_to_sync_bridge(analyze_image)
 
         else:
             yield "Veuillez fournir une image pour ce modèle."
             return
     else:
-        # Modèles sans image en entrée
+        # Handle text-only models (models without image input capability)
         guide_instructions = """
         You are a prompt creation assistant for FLUX, an AI image generation model. Your mission is to help the user craft a detailed and optimized prompt by following these steps:
 
@@ -141,42 +216,42 @@ def enhance_prompt(selected_model, input_text, input_image):
         Ensure that the final part is a synthesized version of the prompt.
         """
 
+        # Construct the full prompt for the LLM
         prompt_for_llm = f"{guide_instructions}\n\nUser input: \"{input_text}\"\n\nGenerated prompt:"
 
         async def run_chat():
+            """
+            Process text-only prompt enhancement using Ollama model.
+            
+            Yields:
+                str: Accumulated enhanced prompt content as it's generated
+            """
             client = AsyncClient()
             message = {'role': 'user', 'content': prompt_for_llm}
             content = ""
-            # Itération asynchrone sur la réponse en streaming
+            
+            # Stream response and accumulate content
             async for part in await client.chat(model=selected_model, messages=[message], stream=True):
                 delta = part['message']['content']
                 content += delta
                 yield content
 
-        output_queue = queue.Queue()
-
-        def run_async_loop(loop, coro):
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(coro)
-
-        async def async_runner():
-            try:
-                async for output in run_chat():
-                    output_queue.put(output)
-            finally:
-                output_queue.put(None)
-
-        new_loop = asyncio.new_event_loop()
-        t = threading.Thread(target=run_async_loop, args=(new_loop, async_runner()))
-        t.start()
-
-        while True:
-            output = output_queue.get()
-            if output is None:
-                break
-            yield output
+        # Use the async-to-sync bridge to handle the text processing
+        yield from _async_to_sync_bridge(run_chat)
 
 def update_image_input_visibility(selected_model):
+    """
+    Update the visibility of image input component based on model capabilities.
+    
+    Vision-capable models (those with multiple families or 'clip' family)
+    require image input, so the image upload component should be visible.
+    
+    Args:
+        selected_model (str): Name of the selected Ollama model
+        
+    Returns:
+        gr.update: Gradio update object to control component visibility
+    """
     families = models_info.get(selected_model, [])
     if len(families) > 1 or 'clip' in families:
         return gr.update(visible=True)
@@ -184,9 +259,22 @@ def update_image_input_visibility(selected_model):
         return gr.update(visible=False)
 
 def update_button_label(selected_model):
+    """
+    Update the button label based on model capabilities.
+    
+    Vision-capable models get "Analyser l'image" (Analyze image) label,
+    while text-only models get "Améliorer le prompt" (Enhance prompt) label.
+    
+    Args:
+        selected_model (str): Name of the selected Ollama model
+        
+    Returns:
+        gr.update: Gradio update object to change button label
+    """
     families = models_info.get(selected_model, [])
     if len(families) > 1 or 'clip' in families:
-        # Modèle qui accepte une image en entrée
+        # Vision-capable model that accepts image input
         return gr.update(value="Analyser l'image")
     else:
+        # Text-only model for prompt enhancement
         return gr.update(value="Améliorer le prompt")
