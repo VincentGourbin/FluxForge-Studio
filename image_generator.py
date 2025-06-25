@@ -20,10 +20,13 @@ import datetime
 import random
 import json
 from pathlib import Path
+from typing import List, Optional, Callable, Any
 
 import config
 from database import save_image_info
 from mflux import Flux1, Flux1Controlnet, Config, ModelConfig
+from mflux.callbacks.callback_registry import CallbackRegistry
+from mflux.callbacks.instances.stepwise_handler import StepwiseHandler
 import gradio as gr
 
 class ImageGenerator:
@@ -84,6 +87,7 @@ class ImageGenerator:
         controlnet_image_path,
         controlnet_strength,
         controlnet_save_canny,
+        enable_stepwise=False,
         progress=gr.Progress(),
         *args
     ):
@@ -118,17 +122,18 @@ class ImageGenerator:
             ValueError: If parameters are invalid or model loading fails
             FileNotFoundError: If specified model or LoRA files don't exist
         """
-        # Create directory for intermediate step images (used for debugging/visualization)
-        stepwise_dir = Path("stepwise_output")
-        stepwise_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Clean up previous intermediate images to avoid clutter
-        for file in stepwise_dir.glob("*.png"):
-            try:
-                os.remove(file)
-            except Exception:
-                # Ignore errors during cleanup (file may be in use)
-                pass
+        # Setup stepwise output directory if requested
+        stepwise_dir = None
+        if enable_stepwise:
+            stepwise_dir = Path("stepwise_output")
+            stepwise_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Clean up previous stepwise images
+            for file in stepwise_dir.glob("*.png"):
+                try:
+                    os.remove(file)
+                except Exception:
+                    pass
 
         # Parameter validation and processing
         # Handle seed generation: 0 or None means generate random seed
@@ -256,6 +261,17 @@ class ImageGenerator:
         output_dir = Path("outputimage")
         output_dir.mkdir(parents=True, exist_ok=True)
         output_filename = output_dir / f"{timestamp.strftime('%Y%m%d_%H%M%S')}_{seed}.png"
+        
+        # Setup stepwise callback if requested
+        if enable_stepwise and stepwise_dir:
+            stepwise_handler = StepwiseHandler(
+                flux=flux_model,
+                output_dir=str(stepwise_dir)
+            )
+            # Register the stepwise handler object (not individual methods)
+            CallbackRegistry.register_in_loop(stepwise_handler)
+            CallbackRegistry.register_before_loop(stepwise_handler)
+            
         # Generate image using the appropriate method based on ControlNet usage
         if use_controlnet:
             # ControlNet-guided generation using reference image
@@ -275,6 +291,15 @@ class ImageGenerator:
 
         # Save the generated image to disk with optional metadata embedding
         image.save(path=str(output_filename), export_json_metadata=metadata)
+        
+        # Clean up stepwise callbacks to prevent accumulation
+        if enable_stepwise and stepwise_dir:
+            try:
+                # Clear the callbacks after generation
+                CallbackRegistry._in_loop_callbacks.clear()
+                CallbackRegistry._before_loop_callbacks.clear()
+            except:
+                pass  # Ignore if callback clearing fails
     
         # Store generation parameters and results in database for history tracking
         # LoRA paths and scales are serialized as JSON for database storage
@@ -299,6 +324,167 @@ class ImageGenerator:
     
         # Return PIL Image object for Gradio display
         return image.image
+
+    def generate_image_with_stepwise_streaming(
+        self,
+        prompt,
+        model_alias,
+        quantize,
+        steps,
+        seed,
+        metadata,
+        guidance,
+        height,
+        width,
+        path,
+        controlnet_image_path,
+        controlnet_strength,
+        controlnet_save_canny,
+        enable_stepwise=False,
+        *args
+    ):
+        """Generate image with real-time stepwise streaming for Gradio interface.
+        
+        This is a generator function that yields updates during image generation,
+        allowing real-time display of intermediate steps in the Gradio interface.
+        
+        Yields:
+            tuple: (current_image, final_image, status) where:
+                - current_image: Current step image or None
+                - final_image: Final generated image or None  
+                - status: Status message string
+        """
+        import threading
+        import queue
+        import time
+        import shutil
+        
+        if not enable_stepwise:
+            # Standard generation without stepwise
+            yield None, None, "🚀 Génération en cours..."
+            
+            final_image = self.generate_image(
+                prompt=prompt,
+                model_alias=model_alias,
+                quantize=quantize,
+                steps=steps,
+                seed=seed,
+                metadata=metadata,
+                guidance=guidance,
+                height=height,
+                width=width,
+                path=path,
+                controlnet_image_path=controlnet_image_path,
+                controlnet_strength=controlnet_strength,
+                controlnet_save_canny=controlnet_save_canny,
+                enable_stepwise=False,
+                *args
+            )
+            
+            yield None, final_image, "✅ Génération terminée !"
+            return
+        
+        # Setup stepwise generation
+        stepwise_dir = Path("stepwise_output")
+        if stepwise_dir.exists():
+            shutil.rmtree(stepwise_dir)
+        stepwise_dir.mkdir(parents=True, exist_ok=True)
+        
+        yield None, None, "🧹 Préparation..."
+        
+        # Generate in background thread
+        result_queue = queue.Queue()
+        error_queue = queue.Queue()
+        
+        def generate_in_thread():
+            try:
+                final_image = self.generate_image(
+                    prompt,
+                    model_alias,
+                    quantize,
+                    steps,
+                    seed,
+                    metadata,
+                    guidance,
+                    height,
+                    width,
+                    path,
+                    controlnet_image_path,
+                    controlnet_strength,
+                    controlnet_save_canny,
+                    True,  # enable_stepwise
+                    gr.Progress(),  # progress parameter
+                    *args
+                )
+                result_queue.put(final_image)
+            except Exception as e:
+                error_queue.put(e)
+        
+        # Start generation
+        generation_thread = threading.Thread(target=generate_in_thread, daemon=True)
+        generation_thread.start()
+        
+        # Monitor stepwise images
+        seen_files = set()
+        step_count = 0
+        last_displayed_step = -1
+        
+        while generation_thread.is_alive() or not result_queue.empty():
+            # Check for new stepwise images
+            if stepwise_dir.exists():
+                current_files = set(stepwise_dir.glob("*.png"))
+                new_files = current_files - seen_files
+                
+                if new_files:
+                    seen_files.update(new_files)
+                    step_count = len(seen_files)
+                    
+                    # Show only the latest image if it's a new step
+                    if step_count > last_displayed_step:
+                        all_files = sorted(list(seen_files), key=lambda x: x.name)
+                        
+                        # Wait for file to be completely written
+                        time.sleep(0.8)
+                        
+                        latest_file = all_files[-1] if all_files else None
+                        if latest_file and latest_file.exists():
+                            try:
+                                # Test file accessibility
+                                with open(latest_file, 'rb') as f:
+                                    f.read(100)
+                                
+                                from PIL import Image
+                                current_step_image = Image.open(latest_file)
+                                last_displayed_step = step_count
+                                
+                                yield current_step_image, None, "🎨 Génération en cours..."
+                            except:
+                                pass  # File not ready yet
+            
+            # Check if generation is finished
+            if not result_queue.empty():
+                final_image = result_queue.get()
+                yield None, final_image, "✅ Génération terminée !"
+                
+                # Cleanup
+                time.sleep(1)
+                if stepwise_dir.exists():
+                    shutil.rmtree(stepwise_dir)
+                break
+            
+            # Check for errors
+            if not error_queue.empty():
+                error = error_queue.get()
+                if stepwise_dir.exists():
+                    shutil.rmtree(stepwise_dir)
+                yield None, None, f"❌ Erreur: {str(error)}"
+                break
+            
+            time.sleep(0.3)
+        
+        # Final cleanup
+        if stepwise_dir.exists():
+            shutil.rmtree(stepwise_dir)
 
     def update_guidance_visibility(self, model_alias):
         """Update UI visibility of guidance parameter based on selected model.

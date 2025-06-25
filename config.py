@@ -64,12 +64,47 @@ def get_ollama_models():
     """
     try:
         import ollama
-        ollama_models = ollama.list()
+        ollama_response = ollama.list()
         models_info = {}
-        for model in ollama_models['models']:
-            name = model['name']
-            families = model['details'].get('families', [])
-            models_info[name] = families
+        
+        # Handle different response formats (newer versions might return object with .models attribute)
+        if hasattr(ollama_response, 'models'):
+            models_list = ollama_response.models
+        elif isinstance(ollama_response, dict) and 'models' in ollama_response:
+            models_list = ollama_response['models']
+        else:
+            # Fallback: treat the response directly as models list
+            models_list = ollama_response if isinstance(ollama_response, list) else []
+        
+        for model in models_list:
+            # Handle different model object formats
+            name = None
+            if hasattr(model, 'model'):  # New ollama format uses 'model' attribute
+                name = model.model
+            elif hasattr(model, 'name'):  # Legacy format
+                name = model.name
+            elif isinstance(model, dict):
+                name = model.get('name', '') or model.get('model', '')
+            
+            if not name:
+                continue
+            
+            # Get detailed model information using ollama.show()
+            try:
+                model_details = ollama.show(name)
+                capabilities = model_details.get('capabilities', [])
+                
+                # Store capabilities instead of families
+                # We're particularly interested in 'vision' capability
+                models_info[name] = capabilities
+                
+            except Exception as e:
+                # Fallback to families if show() fails
+                families = []
+                if hasattr(model, 'details') and hasattr(model.details, 'families'):
+                    families = model.details.families
+                models_info[name] = families
+        
         model_names = list(models_info.keys())
         return models_info, model_names
     except Exception as e:

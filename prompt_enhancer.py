@@ -32,12 +32,46 @@ def _initialize_ollama_models():
     global models_info, model_names
     
     try:
-        ollama_models = ollama.list()
+        ollama_response = ollama.list()
         models_info = {}
-        for model in ollama_models['models']:
-            name = model['name']
-            families = model['details'].get('families', [])
-            models_info[name] = families
+        
+        # Handle different response formats (newer versions might return object)
+        if hasattr(ollama_response, 'models'):
+            models_list = ollama_response.models
+        elif isinstance(ollama_response, dict) and 'models' in ollama_response:
+            models_list = ollama_response['models']
+        else:
+            models_list = ollama_response if isinstance(ollama_response, list) else []
+        
+        for model in models_list:
+            # Handle different model object formats
+            name = None
+            if hasattr(model, 'model'):  # New ollama format uses 'model' attribute
+                name = model.model
+            elif hasattr(model, 'name'):  # Legacy format
+                name = model.name
+            elif isinstance(model, dict):
+                name = model.get('name', '') or model.get('model', '')
+            
+            if not name:
+                continue
+            
+            # Get detailed model information using ollama.show()
+            try:
+                model_details = ollama.show(name)
+                capabilities = model_details.get('capabilities', [])
+                
+                # Store capabilities instead of families
+                # We're particularly interested in 'vision' capability
+                models_info[name] = capabilities
+                
+            except Exception as e:
+                # Fallback to families if show() fails
+                families = []
+                if hasattr(model, 'details') and hasattr(model.details, 'families'):
+                    families = model.details.families
+                models_info[name] = families
+        
         model_names = list(models_info.keys())
     except Exception as e:
         models_info = {}
@@ -116,13 +150,16 @@ def enhance_prompt(selected_model, input_text, input_image):
     # Get model capabilities
     families = models_info.get(selected_model, [])
     
+    # Check if model supports vision based on capabilities
+    is_vision_model = 'vision' in families  # families now contains capabilities
+    
     # Validate inputs based on model requirements
-    if not selected_model or ((len(families) > 1 or 'clip' in families) and not input_image) or (not input_text and not input_image):
+    if not selected_model or (is_vision_model and not input_image) or (not input_text and not input_image):
         yield "Veuillez sélectionner un modèle et saisir du texte ou insérer une image."
         return
 
     # Handle vision-capable models (models that accept image input)
-    if (len(families) > 1 or 'clip' in families):
+    if is_vision_model:
         if input_image is not None:
             # Define the image analysis prompt for FLUX optimization
             analysis_prompt = """
@@ -164,8 +201,9 @@ def enhance_prompt(selected_model, input_text, input_image):
                 """
                 client = AsyncClient()
 
-                # Format message based on model family
-                if 'mllama' in families:
+                # Format message based on model family (check if model supports specific image format)
+                # Most vision models use the 'image' field, some specific ones use 'images' array
+                if any(family in selected_model.lower() for family in ['mllama', 'llama3.2-vision']):
                     messages = [{
                         'role': 'user',
                         'content': analysis_prompt,
@@ -243,7 +281,7 @@ def update_image_input_visibility(selected_model):
     """
     Update the visibility of image input component based on model capabilities.
     
-    Vision-capable models (those with multiple families or 'clip' family)
+    Vision-capable models (those with 'vision' capability)
     require image input, so the image upload component should be visible.
     
     Args:
@@ -252,8 +290,8 @@ def update_image_input_visibility(selected_model):
     Returns:
         gr.update: Gradio update object to control component visibility
     """
-    families = models_info.get(selected_model, [])
-    if len(families) > 1 or 'clip' in families:
+    capabilities = models_info.get(selected_model, [])
+    if 'vision' in capabilities:
         return gr.update(visible=True)
     else:
         return gr.update(visible=False)
@@ -271,8 +309,8 @@ def update_button_label(selected_model):
     Returns:
         gr.update: Gradio update object to change button label
     """
-    families = models_info.get(selected_model, [])
-    if len(families) > 1 or 'clip' in families:
+    capabilities = models_info.get(selected_model, [])
+    if 'vision' in capabilities:
         # Vision-capable model that accepts image input
         return gr.update(value="Analyser l'image")
     else:

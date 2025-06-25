@@ -27,8 +27,8 @@ def migrate_database():
     - Generates appropriate output filenames
     """
     # Database paths - UPDATE THESE BEFORE RUNNING
-    source_db = '/Users/vincent/Developpements/mflux/request_history.db'
-    target_db = '/Users/vincent/Developpements/mflux-gradio/generated_images.db'
+    source_db = 'path/to/your/source/request_history.db'  # Update this path
+    target_db = './generated_images.db'
 
     # Connect to databases
     source_conn = sqlite3.connect(source_db)
