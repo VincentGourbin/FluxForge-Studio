@@ -91,6 +91,7 @@ from ui.lora_manager import (
 from utils.image_processing import ensure_rgb_format, cleanup_memory, save_image_with_metadata
 from utils.mask_utils import extract_inpainting_mask_from_editor, create_outpainting_mask
 from utils.canny_processing import preprocess_canny, generate_canny_preview
+from utils.hf_cache_manager import refresh_hf_cache_for_gradio, delete_selected_hf_items
 
 # Global constants
 TEMP_IMAGES_DIR = "temp_images"
@@ -953,6 +954,22 @@ def create_main_interface():
                     interactive=False,
                     placeholder="Click 'Show Cache Status' to see model cache information..."
                 )
+                
+                gr.Markdown("### 🗂️ HuggingFace Cache Management")
+                gr.Markdown("View and manage all HuggingFace cached models with selective deletion.")
+                
+                hf_refresh_btn = gr.Button("🔄 Refresh HF Cache", variant="primary", size="lg")
+                hf_checkbox_group = gr.CheckboxGroup(
+                    label="Select HuggingFace cache items to delete",
+                    choices=[],
+                    value=[],
+                    interactive=True,
+                    info="Click 'Refresh HF Cache' to load available models"
+                )
+                
+                with gr.Row():
+                    hf_delete_btn = gr.Button("🗑️ Delete Selected Items", variant="stop", size="lg")
+                    hf_status_display = gr.Markdown("**Status:** Ready to manage cache")
             
             # Set up admin events
             def sync_with_status():
@@ -968,6 +985,8 @@ def create_main_interface():
                 outputs=sync_status,
                 show_progress=True
             )
+            
+            # HuggingFace Cache management functions (imported from utils.hf_cache_manager)
             
             # Cache management event
             def show_cache_status():
@@ -1012,6 +1031,23 @@ def create_main_interface():
             cache_info_btn.click(
                 fn=show_cache_status,
                 outputs=cache_info_display,
+                show_progress=True
+            )
+            
+            # HuggingFace Cache management events
+            hf_cache_info_state = gr.State(None)
+            
+            
+            hf_refresh_btn.click(
+                fn=refresh_hf_cache_for_gradio,
+                outputs=[hf_checkbox_group, hf_status_display, hf_cache_info_state],
+                show_progress=True
+            )
+            
+            hf_delete_btn.click(
+                fn=delete_selected_hf_items,
+                inputs=[hf_checkbox_group, hf_cache_info_state],
+                outputs=[hf_checkbox_group, hf_status_display, hf_cache_info_state],
                 show_progress=True
             )
 

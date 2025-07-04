@@ -12,3 +12,4 @@ peft
 opencv-python
 numpy
 huggingface_hub
+pandas

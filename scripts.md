@@ -98,6 +98,7 @@ python show_cleanup_savings.py
 - Simulation sans suppression réelle
 
 
+
 #### 🔧 **Scripts de Maintenance**
 
 
@@ -185,7 +186,7 @@ python train.py --train-config config.json
 ## 🎯 **Scripts Prioritaires pour Utilisateurs**
 
 ### **🥇 Essentiels (utilisation quotidienne)**
-1. `main.py` - Application principale
+1. `main.py` - Application principale (avec gestion cache HuggingFace intégrée)
 2. `check_cache.py` - Vérification rapide
 3. `optimize_cache.py` - Gestion des modèles
 

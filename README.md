@@ -1,4 +1,4 @@
-# MFLUX-Gradio: Advanced FLUX.1 Image Generation Interface
+# FluxForge Studio: Advanced FLUX.1 Image Generation Interface
 
 A comprehensive web-based interface for FLUX.1 image generation with dynamic tool system, LoRA support, prompt enhancement, and background removal capabilities.
 
@@ -28,6 +28,7 @@ A comprehensive web-based interface for FLUX.1 image generation with dynamic too
 - **SQLite Database**: Persistent storage of all image operations
 - **Complete Metadata**: Tracks generation parameters, tools used, and settings
 - **Gallery View**: Visual browsing of generated images with detailed information
+- **HuggingFace Cache Management**: Integrated cache viewer and cleanup with selective deletion
 - **Comprehensive Logging**: Detailed console output for debugging and monitoring
 
 ## 🛠️ Installation
@@ -40,8 +41,8 @@ A comprehensive web-based interface for FLUX.1 image generation with dynamic too
 ### Setup
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd mflux-gradio
+git clone https://github.com/VincentGourbin/FluxForge-Studio.git
+cd FluxForge-Studio
 ```
 
 2. Install dependencies:
@@ -123,8 +124,8 @@ When using `--share`, the application will:
 ## 📁 Project Structure
 
 ```
-mflux-gradio/
-├── mflux-gradio.py          # Main Gradio application with dynamic tool system
+FluxForge-Studio/
+├── main.py                  # Main application entry point
 ├── image_generator.py       # FLUX.1 generation with diffusers integration
 ├── database.py             # SQLite database operations
 ├── config.py               # Configuration and device setup
@@ -175,6 +176,12 @@ The application automatically detects and uses:
 - **JasperAI Model**: Uses FLUX.1-dev-Controlnet-Upscaler
 - **High Quality**: Better than simple image resizing
 - **Automatic Parameters**: Optimized settings for best results
+
+### HuggingFace Cache Management
+- **Visual Cache Browser**: View all cached models with detailed information
+- **Selective Deletion**: Choose specific models to remove with checkboxes
+- **Space Calculation**: See freed space before deletion
+- **Real-time Updates**: Automatic refresh after cleanup operations
 
 ### Memory Management
 - **Automatic Cleanup**: GPU/MPS memory cleaned after operations
