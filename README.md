@@ -1,45 +1,41 @@
 # MFLUX-Gradio: Advanced FLUX.1 Image Generation Interface
 
-A comprehensive web-based interface for FLUX.1 image generation with integrated LoRA training, prompt enhancement, and background removal capabilities.
+A comprehensive web-based interface for FLUX.1 image generation with dynamic tool system, LoRA support, prompt enhancement, and background removal capabilities.
 
 ## 🚀 Features
 
-### 🎨 Image Generation
-- **FLUX.1 Model Support**: Both schnell and dev variants
-- **LoRA Integration**: Dynamic loading of multiple LoRA models with configurable scales
-- **ControlNet Support**: Canny edge detection for controlled generation
-- **Quantization Options**: 4-bit, 8-bit, or no quantization for memory optimization
-- **Model Caching**: Intelligent model caching to prevent unnecessary reloads
+### 🎨 Advanced Image Generation
+- **FLUX.1 Models**: Support for schnell and dev variants with diffusers library
+- **Dynamic Tool System**: Modular selection of LoRA, ControlNet, and FLUX Tools
+- **LoRA Integration**: Multiple LoRA models with individual intensity control (0-1)
+- **ControlNet Support**: Canny edge detection with configurable thresholds
+- **FLUX Tools**: Kontext for image editing and transformation
+- **Background Removal**: AI-powered background removal with rembg
+- **ControlNet Upscaler**: High-quality image upscaling using JasperAI's FLUX ControlNet
+
+### 🛠️ Dynamic Tool System
+- **Modular Design**: Select and combine different AI tools
+- **Individual Tool Control**: Each tool has its own parameters and settings
+- **Real-time Configuration**: Adjust parameters for each selected tool
+- **Visual Tool Management**: Clear interface showing selected tools and their settings
 
 ### 🧠 AI-Powered Prompt Enhancement
 - **Ollama Integration**: Local LLM integration for prompt optimization
 - **Vision Model Support**: Analyze images to generate detailed prompts
-- **Multi-language Support**: Automatic translation and enhancement
 - **Streaming Responses**: Real-time prompt generation with progressive updates
 
-### 🎯 LoRA Training
-- **DreamBooth Training**: Complete training pipeline for custom LoRA models
-- **Real-time Monitoring**: Live tracking of training progress with plots
-- **Flexible Configuration**: Customizable training parameters and validation
-- **Checkpoint Management**: Automatic saving and management of training checkpoints
-
-### 🖼️ Background Removal
-- **AI-Powered**: Advanced background removal using specialized models
-- **High Quality**: Preserves image quality while removing backgrounds
-- **Easy Integration**: Simple drag-and-drop interface
-
 ### 📊 History & Management
-- **SQLite Database**: Persistent storage of generation history and metadata
-- **Detailed Metadata**: Complete parameter tracking for each generation
-- **Gallery View**: Visual browsing of generated images
-- **Export Support**: JSON metadata export for reproducibility
+- **SQLite Database**: Persistent storage of all image operations
+- **Complete Metadata**: Tracks generation parameters, tools used, and settings
+- **Gallery View**: Visual browsing of generated images with detailed information
+- **Comprehensive Logging**: Detailed console output for debugging and monitoring
 
 ## 🛠️ Installation
 
 ### Prerequisites
 - Python 3.8+
-- CUDA-compatible GPU (recommended) or Apple Silicon Mac
-- [Ollama](https://ollama.ai/) (for prompt enhancement features)
+- CUDA-compatible GPU or Apple Silicon Mac (MPS support)
+- [Ollama](https://ollama.ai/) (optional, for prompt enhancement)
 
 ### Setup
 1. Clone the repository:
@@ -53,10 +49,11 @@ cd mflux-gradio
 pip install -r requirements.txt
 ```
 
-3. (Optional) Install and configure Ollama for prompt enhancement:
+**Note**: The requirements include `diffusers` from the main development branch to support FLUX Kontext functionality. This ensures compatibility with the latest FLUX model features.
+
+3. (Optional) Install and configure Ollama:
 ```bash
 # Install Ollama from https://ollama.ai/
-# Pull your preferred models
 ollama pull llama3.2-vision
 ollama pull llama3.2
 ```
@@ -64,56 +61,84 @@ ollama pull llama3.2
 ## 🚀 Usage
 
 ### Starting the Application
+
+#### Local Access
 ```bash
-python mflux-gradio.py
+python main.py
+```
+Access the web interface at `http://localhost:7860`
+
+#### Public Sharing
+```bash
+python main.py --share
+# or
+python main.py -s
 ```
 
-The application will launch a web interface accessible at `http://localhost:7860`
+When using `--share`, the application will:
+- Generate a public shareable link (valid for 1 week)
+- Create random authentication credentials for security
+- Display the username/password in the terminal
 
-### Basic Image Generation
-1. Navigate to the **Generation** tab
-2. Enter your prompt in the text field
-3. Configure parameters (model, steps, dimensions, etc.)
-4. (Optional) Select LoRA models and adjust their scales
-5. Click **Generate Image**
+**Security Note**: Save the generated credentials immediately as they won't be shown again!
 
-### Using LoRA Models
-1. Place your `.safetensors` LoRA files in the `lora/` directory
-2. Update `lora_info.json` with model descriptions and activation keywords
-3. Select desired LoRA models in the Generation tab
-4. Adjust scales (0.0-1.0) for each selected LoRA
+### Dynamic Tool System
 
-### Training Custom LoRA
-1. Navigate to the **Train** tab
-2. Upload training images (multiple files supported)
-3. Add descriptions for each image
-4. Configure training parameters
-5. Click **Start Training**
-6. Monitor progress through generated plots and checkpoints
+#### Adding Tools
+1. Click **"Sélectionner des outils"** to open the tool selection modal
+2. Choose a tool type: LoRA, ControlNet, or FLUX Tools
+3. Select the specific tool from the dropdown
+4. Click **"Ajouter l'outil"** to add it to your selection
 
-### Prompt Enhancement
-1. Navigate to the **Prompt Enhancer** tab
-2. Select an Ollama model
-3. Enter your basic prompt or upload an image (for vision models)
-4. Click **Enhance Prompt** for AI-powered optimization
+#### Tool Types
+
+**LoRA Models**
+- Intensity control (0-1 range)
+- Automatic activation keyword integration
+- Multiple LoRA support (up to 3 simultaneously)
+
+**ControlNet**
+- Canny edge detection with configurable thresholds
+- Adjustable conditioning strength
+- Real-time Canny preview
+- Optional Canny edge image saving
+
+**FLUX Tools**
+- Kontext for image editing
+- Guidance scale control
+- Input image processing
+
+#### Managing Tools
+- **Individual Removal**: Use 🗑️ buttons to remove specific tools
+- **Clear All**: Remove all selected tools at once
+- **Parameter Adjustment**: Modify settings for each tool independently
+
+### Image Generation Process
+1. Enter your prompt
+2. Select model (schnell/dev) and configure basic parameters
+3. Add desired tools using the dynamic tool system
+4. Adjust tool-specific parameters
+5. Generate your image
 
 ## 📁 Project Structure
 
 ```
 mflux-gradio/
-├── mflux-gradio.py          # Main Gradio application
-├── image_generator.py       # FLUX.1 image generation logic
+├── mflux-gradio.py          # Main Gradio application with dynamic tool system
+├── image_generator.py       # FLUX.1 generation with diffusers integration
 ├── database.py             # SQLite database operations
-├── config.py               # Configuration and settings
-├── train.py                # LoRA training functionality
+├── config.py               # Configuration and device setup
 ├── prompt_enhancer.py      # Ollama prompt enhancement
 ├── background_remover.py   # Background removal functionality
 ├── lora_info.json          # LoRA model metadata
+├── requirements.txt        # Python dependencies
+├── docs/                   # Documentation
+│   ├── API.md              # API documentation
+│   ├── FEATURES.md         # Detailed features guide
+│   └── SETUP.md            # Setup instructions
 ├── lora/                   # LoRA model files (.safetensors)
-├── outputimage/            # Generated images
-├── temp_images/            # Temporary training images
-├── temp_train/             # Training configurations
-└── stepwise_output/        # Intermediate generation outputs
+├── outputimage/            # Generated images and metadata
+└── temp_images/            # Temporary file storage
 ```
 
 ## ⚙️ Configuration
@@ -128,59 +153,92 @@ Edit `lora_info.json` to add new LoRA models:
 }
 ```
 
-### Model Paths
-- Local FLUX.1 models can be specified in the Generation tab
-- LoRA files should be placed in the `lora/` directory
-- Training outputs are saved in `temp_train/current_train/`
+### Device Configuration
+The application automatically detects and uses:
+- **MPS** (Apple Silicon)
+- **CUDA** (NVIDIA GPUs)
+- **CPU** (fallback)
+
+### Model Configuration
+- FLUX.1 models loaded via diffusers library
+- ControlNet models loaded on-demand
+- Intelligent model caching for performance
 
 ## 🔧 Advanced Features
 
-### ControlNet Usage
-1. Upload a reference image in the ControlNet section
-2. Adjust strength (0.0-1.0) to control influence
-3. Enable Canny edge visualization if desired
-4. Generate with your prompt and ControlNet guidance
+### ControlNet Canny
+- **Configurable Thresholds**: Adjust low/high thresholds for edge detection
+- **Real-time Preview**: See Canny edges before generation
+- **Strength Control**: Fine-tune ControlNet influence (0-1)
 
-### Training Parameters
-- **Epochs**: Number of training cycles
-- **Batch Size**: Training batch size (memory dependent)
-- **Learning Rate**: Training learning rate (default: 1e-4)
-- **Validation Frequency**: How often to generate validation images
+### ControlNet Upscaler
+- **JasperAI Model**: Uses FLUX.1-dev-Controlnet-Upscaler
+- **High Quality**: Better than simple image resizing
+- **Automatic Parameters**: Optimized settings for best results
 
-### Quantization Options
-- **No Quantization**: Full precision (highest quality, most memory)
-- **8-bit**: Balanced quality and memory usage
-- **4-bit**: Lowest memory usage (slight quality reduction)
+### Memory Management
+- **Automatic Cleanup**: GPU/MPS memory cleaned after operations
+- **Model Caching**: Prevents unnecessary model reloads
+- **Device Optimization**: Adapts to available hardware
+
+### Logging System
+- **Detailed Parameters**: All generation settings logged
+- **Tool Information**: Complete tool configuration tracking
+- **Clean Output**: Essential information without debug clutter
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
-1. **CUDA out of memory**: Try enabling quantization or reducing image dimensions
-2. **Ollama connection issues**: Ensure Ollama is running and models are installed
-3. **LoRA not loading**: Check file paths and `lora_info.json` format
-4. **Training fails**: Verify sufficient disk space and image format compatibility
 
-### Performance Optimization
-- Use quantization for lower memory usage
-- Enable model caching for faster subsequent generations
-- Consider image dimensions vs. generation time trade-offs
+**Memory Issues**
+- Reduce image dimensions
+- Use CPU for ControlNet operations if MPS fails
+- Close other GPU-intensive applications
 
-## 📊 Database Schema
+**Tool Selection Issues**
+- Ensure LoRA files are in `lora/` directory
+- Check `lora_info.json` format
+- Verify ControlNet input images are valid
 
-The SQLite database stores:
-- Generation timestamps and parameters
-- Prompt and model information
-- LoRA configurations used
-- File paths and metadata
-- ControlNet settings
+**Generation Failures**
+- Check console logs for detailed error information
+- Verify model files are accessible
+- Ensure sufficient disk space
 
-## 🤝 Contributing
+### Performance Tips
+- **Model Caching**: Avoid changing models frequently
+- **Tool Selection**: Only select tools you need
+- **Image Dimensions**: Balance quality vs. speed
+- **Batch Operations**: Process multiple images efficiently
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+## 🎯 Key Updates
+
+### Recent Improvements
+- **Diffusers Migration**: Full migration from mflux to diffusers library
+- **Dynamic Tool System**: Modular tool selection and management
+- **Fixed LoRA Mapping**: Corrected tool-to-parameter mapping issues
+- **Enhanced Logging**: Comprehensive parameter tracking
+- **Memory Optimization**: Better GPU/MPS memory management
+- **UI Improvements**: Cleaner interface with better contrast
+- **ControlNet Upscaler**: Proper implementation with JasperAI model
+
+## 📋 TODO
+
+### Planned Features & Improvements
+
+- [ ] **Support quantisation** - Add 4-bit/8-bit model quantization for memory efficiency
+- [ ] **Remove Ollama dependencies** - Make prompt enhancement optional with fallback options
+- [ ] **Add interface to manage LoRA** - GUI for installing, organizing, and managing LoRA models
+- [ ] **Add custom model support** - Support for user-provided custom models and fine-tunes
+- [ ] **Add memory optimisation of diffusers** - Implement advanced memory management techniques
+- [ ] **Add batch image generation** - Queue system for generating multiple images with different prompts/parameters
+
+### Priority
+- **High**: Quantization support and memory optimization
+- **Medium**: LoRA management interface, custom models, and batch generation
+- **Low**: Optional Ollama dependencies
+
+Contributions welcome! Feel free to open issues for feature requests or bug reports.
 
 ## 📝 License
 
@@ -189,17 +247,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🙏 Acknowledgments
 
 - [FLUX.1](https://github.com/black-forest-labs/flux) by Black Forest Labs
-- [mflux](https://github.com/filipstrand/mflux) - FLUX.1 implementation
+- [Diffusers](https://github.com/huggingface/diffusers) by Hugging Face
 - [Gradio](https://gradio.app/) - Web interface framework
 - [Ollama](https://ollama.ai/) - Local LLM integration
-
-## 📞 Support
-
-For issues and questions:
-1. Check the troubleshooting section
-2. Review existing issues in the repository
-3. Create a new issue with detailed information
+- [JasperAI](https://huggingface.co/jasperai) - ControlNet Upscaler model
 
 ---
 
-**Note**: This application requires significant computational resources. GPU acceleration is highly recommended for optimal performance.
+**Performance Note**: This application requires significant computational resources. GPU acceleration (CUDA/MPS) is highly recommended for optimal performance.

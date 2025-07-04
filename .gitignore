@@ -45,5 +45,6 @@ generated_images.db
 /train
 /temp_images
 /temp_train
+/orphaned_pictures
 
 CLAUDE.md

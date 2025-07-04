@@ -132,7 +132,7 @@ ollama serve
 
 ### 1. Start Application
 ```bash
-python mflux-gradio.py
+python main.py
 ```
 
 ### 2. Access Interface
@@ -380,7 +380,7 @@ truncate -s 0 application.log
 ### Common Commands Reference
 ```bash
 # Start application
-python mflux-gradio.py
+python main.py
 
 # Train standalone
 python train.py --train-config config.json

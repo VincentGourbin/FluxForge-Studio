@@ -76,7 +76,7 @@ def _initialize_ollama_models():
     except Exception as e:
         models_info = {}
         model_names = []
-        print(f"Erreur lors de la récupération des modèles Ollama : {e}")
+        print(f"Error retrieving Ollama models: {e}")
 
 def _run_async_loop(loop, coro):
     """
@@ -154,8 +154,18 @@ def enhance_prompt(selected_model, input_text, input_image):
     is_vision_model = 'vision' in families  # families now contains capabilities
     
     # Validate inputs based on model requirements
-    if not selected_model or (is_vision_model and not input_image) or (not input_text and not input_image):
-        yield "Veuillez sélectionner un modèle et saisir du texte ou insérer une image."
+    if not selected_model:
+        yield "Please select a model."
+        return
+    
+    # For vision models, require an image
+    if is_vision_model and not input_image:
+        yield "Please provide an image for this vision model."
+        return
+    
+    # For text models, require text input
+    if not is_vision_model and not input_text:
+        yield "Please enter text to enhance."
         return
 
     # Handle vision-capable models (models that accept image input)
@@ -202,14 +212,16 @@ def enhance_prompt(selected_model, input_text, input_image):
                 client = AsyncClient()
 
                 # Format message based on model family (check if model supports specific image format)
-                # Most vision models use the 'image' field, some specific ones use 'images' array
-                if any(family in selected_model.lower() for family in ['mllama', 'llama3.2-vision']):
+                # Most vision models use the 'images' array, some older ones use 'image' field
+                if any(keyword in selected_model.lower() for keyword in ['qwen', 'llama3.2-vision', 'mllama', 'vision']):
+                    # Modern vision models typically use 'images' array
                     messages = [{
                         'role': 'user',
                         'content': analysis_prompt,
                         'images': [input_image]
                     }]
                 else:
+                    # Fallback to 'image' field for older models
                     messages = [{
                         'role': 'user',
                         'content': analysis_prompt,
@@ -227,7 +239,7 @@ def enhance_prompt(selected_model, input_text, input_image):
             yield from _async_to_sync_bridge(analyze_image)
 
         else:
-            yield "Veuillez fournir une image pour ce modèle."
+            yield "Please provide an image for this model."
             return
     else:
         # Handle text-only models (models without image input capability)
@@ -312,7 +324,7 @@ def update_button_label(selected_model):
     capabilities = models_info.get(selected_model, [])
     if 'vision' in capabilities:
         # Vision-capable model that accepts image input
-        return gr.update(value="Analyser l'image")
+        return gr.update(value="Analyze Image")
     else:
         # Text-only model for prompt enhancement
-        return gr.update(value="Améliorer le prompt")
+        return gr.update(value="Enhance Prompt")

@@ -11,17 +11,21 @@ import json
 import torch
 
 
-# Device configuration (CPU, GPU, MPS for Apple Silicon)
-device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+# Device configuration (MPS for Apple Silicon, CUDA for NVIDIA GPUs, CPU fallback)
+if torch.backends.mps.is_available():
+    device = 'mps'
+elif torch.cuda.is_available():
+    device = 'cuda'
+else:
+    device = 'cpu'
 
-# Global variables for storing the currently loaded model state
+# Global variables for storing the currently loaded model state (deprecated - now handled in ImageGenerator)
 current_model_alias = None
-current_quantize = None
 current_path = None
 current_lora_paths = None
 current_lora_scales = None
 current_model_type = None  # 'standard' or 'controlnet'
-flux_model = None
+flux_pipeline = None
 
 # Path to the directory containing LoRA files
 lora_directory = 'lora'
@@ -50,9 +54,28 @@ def load_lora_data():
 # Load LoRA information from JSON file
 lora_data = load_lora_data()
 
-# Model and quantization options
+# Model options (no quantization needed with diffusers)
 model_options = ["schnell", "dev"]
-quantize_options = [4, 8, None]
+
+# ControlNet options
+controlnet_options = {
+    "None": None,
+    "Canny (InstantX) - Edge detection": "InstantX/FLUX.1-dev-controlnet-canny"
+}
+
+# FLUX Tools options
+flux_tools_options = {
+    "None": None,
+    "Kontext (Black Forest Labs) - Text-based image editing": "black-forest-labs/FLUX.1-Kontext-dev"
+}
+
+# Post Processing options
+post_processing_options = {
+    "None": None,
+    "Upscaler (JasperAI) - Resolution enhancement": "jasperai/Flux.1-dev-Controlnet-Upscaler",
+    "Background Remover - Background removal": "background_remover",
+    "FLUX Fill Tools - Inpainting and Outpainting": "flux_fill_tools"
+}
 
 def get_ollama_models():
     """
@@ -108,8 +131,13 @@ def get_ollama_models():
         model_names = list(models_info.keys())
         return models_info, model_names
     except Exception as e:
-        print(f"Erreur lors de la récupération des modèles Ollama : {e}")
+        print(f"Error retrieving Ollama models: {e}")
         return {}, []
+
+# Model cache and download settings
+USE_OFFLINE_MODE = False  # Set to True to use only cached models
+PREDOWNLOAD_MODELS = False  # Set to True to pre-download all models on startup
+CACHE_DIRECTORY = None  # Use default HuggingFace cache or specify custom path
 
 # Get available Ollama models
 models_info, model_names = get_ollama_models()

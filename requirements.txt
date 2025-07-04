@@ -2,6 +2,13 @@ gradio
 torch
 torchvision
 transformers
+# Install diffusers from main branch for FLUX Kontext support
+git+https://github.com/huggingface/diffusers.git
 pillow
 ollama
-mflux
+accelerate
+safetensors
+peft
+opencv-python
+numpy
+huggingface_hub

@@ -8,7 +8,7 @@ import torch
 from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 from PIL import Image
-from config import device
+from core.config import device
 
 def load_background_removal_model():
     """

@@ -6,7 +6,7 @@ This document provides technical documentation for the MFLUX-Gradio API and inte
 
 ### Core Modules
 
-#### `mflux-gradio.py`
+#### `main.py`
 Main Gradio application with web interface.
 
 #### `image_generator.py` 

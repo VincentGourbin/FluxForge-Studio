@@ -1,0 +1,667 @@
+# database.py
+"""
+Database module for managing image generation history and metadata.
+Handles SQLite operations for storing and retrieving generated images information.
+"""
+
+import sqlite3
+import json
+import os
+from pathlib import Path
+
+# Database file path
+db_path = 'generated_images.db'
+
+def check_and_migrate_database():
+    """
+    Check database version and perform migration if needed.
+    Migrates from old column-based structure to new JSON-based structure.
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Check if we have the new structure
+    cursor.execute("PRAGMA table_info(images)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    has_metadata_json = 'metadata_json' in columns
+    has_old_structure = 'quantize' in columns or 'steps' in columns
+    
+    if not has_metadata_json and has_old_structure:
+        print("🔄 Migrating database to new JSON structure...")
+        migrate_to_json_structure(conn)
+        print("✅ Database migration completed!")
+    elif not has_metadata_json:
+        print("🆕 Creating new JSON-based database structure...")
+        create_new_structure(conn)
+        print("✅ New database structure created!")
+    
+    conn.close()
+
+def migrate_to_json_structure(conn):
+    """
+    Migrate existing database from column-based to JSON-based structure.
+    """
+    cursor = conn.cursor()
+    
+    # Read all existing data
+    cursor.execute("SELECT * FROM images")
+    existing_data = cursor.fetchall()
+    cursor.execute("PRAGMA table_info(images)")
+    old_columns = [column[1] for column in cursor.fetchall()]
+    
+    # Create new table structure
+    cursor.execute('''
+        CREATE TABLE images_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            generation_type TEXT NOT NULL,
+            output_filename TEXT NOT NULL,
+            metadata_json TEXT NOT NULL
+        )
+    ''')
+    
+    # Migrate data
+    for row in existing_data:
+        row_dict = dict(zip(old_columns, row))
+        
+        # Determine generation type
+        if row_dict.get('controlnet_image_path'):
+            generation_type = 'controlnet'
+        elif 'flux_fill' in str(row_dict.get('model_alias', '')).lower():
+            generation_type = 'flux_fill'
+        elif 'kontext' in str(row_dict.get('model_alias', '')).lower():
+            generation_type = 'kontext'
+        elif 'upscaler' in str(row_dict.get('model_alias', '')).lower():
+            generation_type = 'upscaler'
+        else:
+            generation_type = 'standard'
+        
+        # Create metadata JSON
+        metadata = {
+            'seed': row_dict.get('seed', 0),
+            'prompt': row_dict.get('prompt', ''),
+            'model_alias': row_dict.get('model_alias', ''),
+            'steps': row_dict.get('steps', 0),
+            'guidance': row_dict.get('guidance', 0.0),
+            'height': row_dict.get('height', 0),
+            'width': row_dict.get('width', 0),
+            'lora_paths': json.loads(row_dict.get('lora_paths', '[]')),
+            'lora_scales': json.loads(row_dict.get('lora_scales', '[]')),
+        }
+        
+        # Add specific metadata based on generation type
+        if generation_type == 'controlnet':
+            metadata['controlnet'] = {
+                'type': row_dict.get('quantize', 'None'),  # quantize was repurposed
+                'image_path': row_dict.get('controlnet_image_path'),
+                'strength': row_dict.get('controlnet_strength', 1.0),
+                'save_canny': row_dict.get('controlnet_save_canny', False)
+            }
+        elif generation_type == 'upscaler':
+            metadata['upscaler'] = {
+                'multiplier': row_dict.get('controlnet_strength', 2.0)  # repurposed field
+            }
+        
+        cursor.execute('''
+            INSERT INTO images_new (timestamp, generation_type, output_filename, metadata_json)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            row_dict.get('timestamp', ''),
+            generation_type,
+            row_dict.get('output_filename', ''),
+            json.dumps(metadata)
+        ))
+    
+    # Replace old table
+    cursor.execute("DROP TABLE images")
+    cursor.execute("ALTER TABLE images_new RENAME TO images")
+    conn.commit()
+
+def create_new_structure(conn):
+    """
+    Create new JSON-based database structure.
+    """
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            generation_type TEXT NOT NULL,
+            output_filename TEXT NOT NULL,
+            metadata_json TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+
+def init_db():
+    """
+    Initialize the SQLite database with migration support.
+    """
+    check_and_migrate_database()
+
+def save_image_info(details):
+    """
+    Legacy function for backward compatibility. Use specific save functions instead.
+    """
+    # For backward compatibility during transition
+    # This will be phased out once all modules use the new functions
+    pass
+
+def save_standard_generation(timestamp, seed, prompt, model_alias, steps, guidance, 
+                           height, width, lora_paths, lora_scales, output_filename):
+    """
+    Save standard text-to-image generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': prompt,
+        'model_alias': model_alias,
+        'steps': steps,
+        'guidance': guidance,
+        'height': height,
+        'width': width,
+        'lora_paths': lora_paths,
+        'lora_scales': lora_scales
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'standard', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def save_flux_fill_generation(timestamp, seed, prompt, mode, steps, guidance, 
+                            height, width, lora_paths, lora_scales, output_filename):
+    """
+    Save FLUX Fill (inpainting/outpainting) generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': prompt,
+        'model_alias': 'flux_fill',
+        'mode': mode,  # 'Inpainting' or 'Outpainting'
+        'steps': steps,
+        'guidance': guidance,
+        'height': height,
+        'width': width,
+        'lora_paths': lora_paths,
+        'lora_scales': lora_scales
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'flux_fill', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def save_kontext_generation(timestamp, seed, prompt, steps, guidance, 
+                          height, width, lora_paths, lora_scales, output_filename):
+    """
+    Save Kontext (image editing) generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': prompt,
+        'model_alias': 'kontext',
+        'steps': steps,
+        'guidance': guidance,
+        'height': height,
+        'width': width,
+        'lora_paths': lora_paths,
+        'lora_scales': lora_scales
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'kontext', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def save_upscaler_generation(timestamp, seed, multiplier, height, width, output_filename):
+    """
+    Save upscaler generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': f'Image upscaling x{multiplier}',
+        'model_alias': 'upscaler',
+        'multiplier': multiplier,
+        'steps': 28,
+        'guidance': 3.5,
+        'height': height,
+        'width': width,
+        'lora_paths': [],
+        'lora_scales': []
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'upscaler', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def save_controlnet_generation(timestamp, seed, prompt, model_alias, controlnet_type,
+                             controlnet_strength, steps, guidance, height, width, 
+                             lora_paths, lora_scales, output_filename):
+    """
+    Save ControlNet generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': prompt,
+        'model_alias': model_alias,
+        'steps': steps,
+        'guidance': guidance,
+        'height': height,
+        'width': width,
+        'lora_paths': lora_paths,
+        'lora_scales': lora_scales,
+        'controlnet': {
+            'type': controlnet_type,
+            'strength': controlnet_strength
+        }
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'controlnet', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def save_flux_depth_generation(timestamp, seed, prompt, steps, guidance, 
+                              height, width, lora_paths, lora_scales, output_filename):
+    """
+    Save FLUX Depth generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': prompt,
+        'model_alias': 'flux_depth',
+        'steps': steps,
+        'guidance': guidance,
+        'height': height,
+        'width': width,
+        'lora_paths': lora_paths,
+        'lora_scales': lora_scales,
+        'depth_control': True
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'flux_depth', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def save_flux_canny_generation(timestamp, seed, prompt, steps, guidance, 
+                              low_threshold, high_threshold, height, width, 
+                              lora_paths, lora_scales, output_filename):
+    """
+    Save FLUX Canny generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': prompt,
+        'model_alias': 'flux_canny',
+        'steps': steps,
+        'guidance': guidance,
+        'height': height,
+        'width': width,
+        'lora_paths': lora_paths,
+        'lora_scales': lora_scales,
+        'canny_control': True,
+        'low_threshold': low_threshold,
+        'high_threshold': high_threshold
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'flux_canny', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def save_flux_redux_generation(timestamp, seed, guidance, steps, variation_strength, 
+                              height, width, output_filename):
+    """
+    Save FLUX Redux generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': 'Image variation/refinement',
+        'model_alias': 'flux_redux',
+        'steps': steps,
+        'guidance': guidance,
+        'height': height,
+        'width': width,
+        'lora_paths': [],
+        'lora_scales': [],
+        'redux_variation': True,
+        'variation_strength': variation_strength
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'flux_redux', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def load_history():
+    """
+    Load the history of generated images from the database.
+    Only returns images that still exist on the filesystem.
+    
+    Returns:
+        list: List of image file paths for existing generated images,
+              ordered by timestamp (newest first)
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT output_filename FROM images ORDER BY timestamp DESC')
+    records = cursor.fetchall()
+    conn.close()
+
+    images = []
+    for record in records:
+        output_filename = record[0]
+        if os.path.exists(output_filename):
+            images.append(output_filename)
+    return images
+
+def get_image_details(index):
+    """
+    Retrieve detailed information about a specific image by its index.
+    
+    Args:
+        index (int): Index of the image in the history (0-based)
+        
+    Returns:
+        str: Formatted string containing all image generation parameters,
+             or error message if index is invalid
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT timestamp, generation_type, output_filename, metadata_json FROM images ORDER BY timestamp DESC')
+    records = cursor.fetchall()
+    conn.close()
+
+    if 0 <= index < len(records):
+        timestamp, generation_type, output_filename, metadata_json = records[index]
+        
+        try:
+            metadata = json.loads(metadata_json)
+        except json.JSONDecodeError:
+            return "Error: Invalid metadata format"
+        
+        # Format details for display
+        details_lines = [
+            f"🕒 Timestamp: {timestamp}",
+            f"🎨 Generation Type: {generation_type.title()}",
+            f"📁 File: {os.path.basename(output_filename)}",
+            "",
+            "📊 Generation Parameters:",
+        ]
+        
+        # Basic parameters
+        if 'prompt' in metadata:
+            details_lines.append(f"  💬 Prompt: {metadata['prompt']}")
+        if 'seed' in metadata:
+            details_lines.append(f"  🎲 Seed: {metadata['seed']}")
+        if 'model_alias' in metadata:
+            details_lines.append(f"  🤖 Model: {metadata['model_alias']}")
+        if 'steps' in metadata:
+            details_lines.append(f"  🔄 Steps: {metadata['steps']}")
+        if 'guidance' in metadata:
+            details_lines.append(f"  🎚️ Guidance: {metadata['guidance']}")
+        if 'height' in metadata and 'width' in metadata:
+            details_lines.append(f"  📐 Size: {metadata['width']}x{metadata['height']}")
+        
+        # Type-specific parameters
+        if generation_type == 'flux_fill' and 'mode' in metadata:
+            details_lines.append(f"  🖌️ Mode: {metadata['mode']}")
+        elif generation_type == 'upscaler' and 'multiplier' in metadata:
+            details_lines.append(f"  📈 Multiplier: {metadata['multiplier']}x")
+        elif generation_type == 'flux_depth':
+            details_lines.append(f"  🌊 Type: Depth-guided generation")
+            if 'depth_control' in metadata:
+                details_lines.append(f"  🎛️ Depth Control: {metadata['depth_control']}")
+        elif generation_type == 'flux_canny':
+            details_lines.append(f"  🖋️ Type: Canny edge-guided generation")
+            if 'canny_control' in metadata:
+                details_lines.append(f"  🎛️ Canny Control: {metadata['canny_control']}")
+            if 'low_threshold' in metadata and 'high_threshold' in metadata:
+                details_lines.append(f"  📉 Low Threshold: {metadata['low_threshold']}")
+                details_lines.append(f"  📈 High Threshold: {metadata['high_threshold']}")
+        elif generation_type == 'flux_redux':
+            details_lines.append(f"  🔄 Type: Image variation/refinement")
+            if 'redux_variation' in metadata:
+                details_lines.append(f"  🎛️ Redux Variation: {metadata['redux_variation']}")
+            if 'variation_strength' in metadata:
+                details_lines.append(f"  💫 Variation Strength: {metadata['variation_strength']}")
+        elif generation_type == 'controlnet' and 'controlnet' in metadata:
+            cn_data = metadata['controlnet']
+            details_lines.append(f"  🎛️ ControlNet Type: {cn_data.get('type', 'Unknown')}")
+            details_lines.append(f"  🎛️ ControlNet Strength: {cn_data.get('strength', 1.0)}")
+        
+        # LoRA information
+        if 'lora_paths' in metadata and 'lora_scales' in metadata:
+            lora_paths = metadata['lora_paths']
+            lora_scales = metadata['lora_scales']
+            if lora_paths and len(lora_paths) > 0:
+                details_lines.append("")
+                details_lines.append("🎨 LoRA Models:")
+                for i, (path, scale) in enumerate(zip(lora_paths, lora_scales)):
+                    lora_name = os.path.basename(path)
+                    details_lines.append(f"  {i+1}. {lora_name} (scale: {scale})")
+        
+        # Raw JSON (for debugging)
+        details_lines.extend([
+            "",
+            "🔧 Raw Metadata JSON:",
+            json.dumps(metadata, indent=2)
+        ])
+        
+        return '\n'.join(details_lines)
+    else:
+        return "No information available for this image."
+
+def delete_image(selected_image_index):
+    """
+    Delete an image and its database record by index.
+    Removes both the image file from the filesystem and the database entry.
+    
+    Args:
+        selected_image_index (int): Index of the image to delete (0-based)
+        
+    Returns:
+        tuple: (success: bool, message: str) indicating operation result
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM images ORDER BY timestamp DESC')
+    records = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
+
+    if 0 <= selected_image_index < len(records):
+        record = records[selected_image_index]
+        image_id = record[columns.index('id')]
+        output_filename = record[columns.index('output_filename')]
+
+        # Remove image file from filesystem
+        if os.path.exists(output_filename):
+            os.remove(output_filename)
+
+        # Remove database record
+        cursor.execute('DELETE FROM images WHERE id = ?', (image_id,))
+        conn.commit()
+        conn.close()
+
+        return True, "Image deleted successfully."
+    else:
+        conn.close()
+        return False, "No matching image found."
+
+def sync_gallery_and_disk():
+    """
+    Synchronise la base de données, la gallery et les fichiers sur le disque.
+    
+    Cette fonction :
+    1. Trouve les images sur le disque qui ne sont pas dans la base de données
+       et les déplace vers orphaned_pictures/
+    2. Trouve les entrées en base qui pointent vers des fichiers inexistants
+       et les supprime de la base de données
+    3. Gère les fichiers JSON de métadonnées associés
+    
+    Returns:
+        list: Updated gallery images list
+    """
+    import glob
+    import shutil
+    from pathlib import Path
+    
+    try:
+        # Créer le dossier orphaned_pictures s'il n'existe pas
+        orphaned_dir = Path("orphaned_pictures")
+        orphaned_dir.mkdir(exist_ok=True)
+        
+        # Récupérer toutes les entrées de la base de données
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT output_filename FROM images')
+        db_files = {record[0] for record in cursor.fetchall()}
+        conn.close()
+        
+        # Récupérer tous les fichiers d'images dans outputimage/
+        output_dir = Path("outputimage")
+        if not output_dir.exists():
+            return False, "Le dossier outputimage/ n'existe pas.", {}
+            
+        # Patterns pour les images et JSON
+        image_patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
+        disk_images = set()
+        disk_jsons = set()
+        
+        for pattern in image_patterns:
+            disk_images.update(output_dir.glob(pattern))
+        
+        # Récupérer tous les fichiers JSON
+        disk_jsons.update(output_dir.glob("*.json"))
+        
+        # Convertir en chemins relatifs string pour comparaison
+        disk_images_str = {str(img) for img in disk_images}
+        disk_jsons_str = {str(json_file) for json_file in disk_jsons}
+        
+        # Statistiques
+        stats = {
+            "images_in_db": len(db_files),
+            "images_on_disk": len(disk_images_str),
+            "orphaned_moved": 0,
+            "db_entries_removed": 0,
+            "jsons_moved": 0,
+            "orphaned_jsons_moved": 0
+        }
+        
+        # 1. Trouver les images sur le disque mais pas en base (orphelines)
+        orphaned_images = disk_images_str - db_files
+        
+        for orphaned_image in orphaned_images:
+            orphaned_path = Path(orphaned_image)
+            if orphaned_path.exists():
+                # Déplacer l'image
+                dest_image = orphaned_dir / orphaned_path.name
+                shutil.move(str(orphaned_path), str(dest_image))
+                stats["orphaned_moved"] += 1
+                
+                # Chercher et déplacer le JSON associé s'il existe
+                json_path = orphaned_path.with_suffix('.json')
+                if json_path.exists():
+                    dest_json = orphaned_dir / json_path.name
+                    shutil.move(str(json_path), str(dest_json))
+                    stats["jsons_moved"] += 1
+        
+        # 2. Trouver les JSON orphelins (JSON sans image associée)
+        orphaned_jsons = set()
+        for json_file in disk_jsons:
+            json_path = Path(json_file)
+            # Chercher l'image correspondante (même nom, différentes extensions)
+            image_extensions = ['.png', '.jpg', '.jpeg', '.webp']
+            corresponding_image_found = False
+            
+            for ext in image_extensions:
+                corresponding_image = json_path.with_suffix(ext)
+                if corresponding_image in disk_images:
+                    corresponding_image_found = True
+                    break
+            
+            if not corresponding_image_found:
+                orphaned_jsons.add(json_file)
+        
+        # Déplacer les JSON orphelins
+        for orphaned_json in orphaned_jsons:
+            json_path = Path(orphaned_json)
+            if json_path.exists():
+                dest_json = orphaned_dir / json_path.name
+                shutil.move(str(json_path), str(dest_json))
+                stats["orphaned_jsons_moved"] += 1
+        
+        # 3. Trouver les entrées en base qui pointent vers des fichiers inexistants
+        missing_files = db_files - disk_images_str
+        
+        if missing_files:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            for missing_file in missing_files:
+                cursor.execute('DELETE FROM images WHERE output_filename = ?', (missing_file,))
+                stats["db_entries_removed"] += 1
+            
+            conn.commit()
+            conn.close()
+        
+        # Générer le message de résultat
+        message_parts = []
+        if stats["orphaned_moved"] > 0:
+            message_parts.append(f"🗂️ {stats['orphaned_moved']} orphaned image(s) moved")
+        if stats["jsons_moved"] > 0:
+            message_parts.append(f"📄 {stats['jsons_moved']} associated JSON file(s) moved")
+        if stats["orphaned_jsons_moved"] > 0:
+            message_parts.append(f"📄 {stats['orphaned_jsons_moved']} orphaned JSON file(s) moved")
+        if stats["db_entries_removed"] > 0:
+            message_parts.append(f"🗑️ {stats['db_entries_removed']} database entry(ies) removed")
+        
+        if not message_parts:
+            print("✅ Gallery and disk already synchronized - no action required")
+        else:
+            print("✅ Synchronization completed:")
+            for part in message_parts:
+                print(f"  {part}")
+        
+        # Return updated gallery list
+        return load_history()
+        
+    except Exception as e:
+        print(f"❌ Error during synchronization: {str(e)}")
+        return load_history()  # Return current gallery even if sync failed
