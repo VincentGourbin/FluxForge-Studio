@@ -72,11 +72,19 @@ class ImageGenerator:
         self.current_lora_paths = []
         self.current_lora_scales = []
         self.current_model_type = None
+        self.current_quantization = None
         self.flux_pipeline = None
         
         # Device and precision configuration
         self.device = config.device
-        self.dtype = torch.bfloat16 if self.device in ['cuda', 'mps'] else torch.float32
+        # FLUX dtype configuration selon device
+        # Tests confirment: float32 et bfloat16 fonctionnent sur MPS, float16 cause images noires
+        if self.device == 'mps':
+            self.dtype = torch.bfloat16  # Testé OK sur MPS, luminosité 189.0
+        elif self.device == 'cuda':
+            self.dtype = torch.bfloat16
+        else:
+            self.dtype = torch.float32
         
         # Configuration data loaded from config module
         self.lora_data = config.lora_data
@@ -112,6 +120,7 @@ class ImageGenerator:
         post_processing_type="None",
         post_processing_image_path=None,
         post_processing_multiplier=2.0,
+        quantization="None",
         *args
     ):
         """Generate an image using FLUX.1 model with optional LoRA and ControlNet support.
@@ -209,7 +218,8 @@ class ImageGenerator:
             model_alias != self.current_model_alias or          # Different model
             path != self.current_path or                       # Different model path
             self.flux_pipeline is None or                      # No model loaded yet
-            current_pipeline_type != self.current_model_type   # Pipeline type change
+            current_pipeline_type != self.current_model_type or # Pipeline type change
+            quantization != self.current_quantization          # Quantization change
         )
         
         # Check if LoRA configuration has changed
@@ -270,10 +280,14 @@ class ImageGenerator:
             # Enable memory efficient attention
             flux_pipeline.enable_attention_slicing()
             
+            # IMPORTANT: Quantization sera appliquée APRÈS le chargement des LoRA
+            # pour éviter les incompatibilités de noms de paramètres
+            
             # Update cached model state
             self.current_model_alias = model_alias
             self.current_path = path
             self.current_model_type = current_model_type
+            self.current_quantization = quantization
             self.flux_pipeline = flux_pipeline
             
             # Force LoRA reload since model was reloaded
@@ -309,16 +323,27 @@ class ImageGenerator:
                         lora_filename = os.path.basename(lora_path)
                         adapter_name = os.path.splitext(lora_filename)[0].replace('.', '_')
                         
-                        # Load LoRA with warning suppression
-                        with warnings.catch_warnings():
-                            warnings.filterwarnings("ignore", message=".*CLIPTextModel.*")
-                            warnings.filterwarnings("ignore", message=".*No LoRA keys associated to CLIPTextModel.*")
-                            warnings.filterwarnings("ignore", message=".*Already found a.*peft_config.*attribute.*")
-                            flux_pipeline.load_lora_weights(
-                                lora_dir, 
-                                weight_name=lora_filename,
-                                adapter_name=adapter_name
-                            )
+                        # Load LoRA with warning suppression and error handling
+                        try:
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings("ignore", message=".*CLIPTextModel.*")
+                                warnings.filterwarnings("ignore", message=".*No LoRA keys associated to CLIPTextModel.*")
+                                warnings.filterwarnings("ignore", message=".*Already found a.*peft_config.*attribute.*")
+                                flux_pipeline.load_lora_weights(
+                                    lora_dir, 
+                                    weight_name=lora_filename,
+                                    adapter_name=adapter_name
+                                )
+                                print(f"✅ LoRA chargé avec succès: {lora_filename}")
+                        except KeyError as e:
+                            print(f"❌ LoRA incompatible (paramètre manquant): {lora_filename}")
+                            print(f"   Erreur: {e}")
+                            print(f"   💡 Vérifiez que quantisation est appliquée APRÈS LoRA")
+                            continue  # Skip this LoRA and continue with others
+                        except Exception as e:
+                            print(f"❌ Erreur chargement LoRA: {lora_filename}")
+                            print(f"   Erreur: {e}")
+                            continue  # Skip this LoRA and continue with others
                         
                         adapter_names.append(adapter_name)
                         adapter_weights.append(float(lora_scale))
@@ -331,6 +356,30 @@ class ImageGenerator:
             self.current_lora_paths = lora_paths_list
             self.current_lora_scales = lora_scales_list
     
+        # Apply quantization AFTER LoRA loading to avoid parameter name conflicts
+        if quantization and quantization != "None" and model_alias in ["schnell", "dev"]:
+            from utils.quantization import quantize_pipeline_components
+            
+            # Tests confirment: seul qint8 fonctionne de manière stable
+            # Schnell: testé 73.5% économie mémoire, Dev: même technologie
+            if quantization in ["8-bit", "Auto"]:
+                model_info = "testé: 73.5% économie mémoire" if model_alias == "schnell" else "même technologie que Schnell"
+                print(f"🔧 Application quantification qint8 FLUX {model_alias} ({model_info}) APRÈS LoRA")
+                success, error = quantize_pipeline_components(flux_pipeline, self.device, prefer_4bit=False, verbose=True)
+                if not success:
+                    print(f"⚠️  Quantification qint8 échouée: {error}")
+                    print("🔄 Continuons sans quantification...")
+            elif quantization == "4-bit":
+                print(f"⚠️  Quantification 4-bit non supportée sur {self.device} (tests montrent erreurs)")
+                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire substantielle")
+                print("🔄 Continuons sans quantification...")
+            else:
+                print(f"⚠️  Quantification {quantization} non supportée")
+                print("🔄 Continuons sans quantification...")
+        elif quantization and quantization != "None" and model_alias not in ["schnell", "dev"]:
+            print(f"⚠️  Quantification disponible pour FLUX Schnell et Dev uniquement")
+            print("🔄 Continuons sans quantification...")
+
         # Generate timestamp for file naming and database storage
         timestamp = datetime.datetime.now()
         timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')

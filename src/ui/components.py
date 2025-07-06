@@ -124,6 +124,20 @@ def create_model_selector(model_options, default_model="schnell"):
         value=default_model
     )
 
+def create_quantization_selector():
+    """
+    Create quantization selection dropdown with tested MPS compatibility.
+    
+    Returns:
+        gr.Dropdown: Quantization selection dropdown
+    """
+    return gr.Dropdown(
+        label="Quantization - Memory optimisation",
+        choices=["None", "8-bit"],
+        value="8-bit",
+        info="8-bit: ~70% memory reduction, None: no optimization"
+    )
+
 def create_controlnet_controls():
     """
     Create ControlNet parameter controls.

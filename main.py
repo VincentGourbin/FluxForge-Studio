@@ -33,7 +33,33 @@ from pathlib import Path
 # Set PyTorch MPS fallback for Apple Silicon compatibility
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 
-# Filter out timm deprecation warnings
+# Suppress bitsandbytes warnings (we use optimum.quanto now)
+warnings.filterwarnings("ignore", message=".*bitsandbytes.*")
+warnings.filterwarnings("ignore", message=".*8-bit optimizers.*")
+warnings.filterwarnings("ignore", message=".*GPU quantization.*")
+warnings.filterwarnings("ignore", message=".*cadam32bit_grad_fp32.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="bitsandbytes*")
+
+# Suppress specific bitsandbytes AttributeError
+import sys
+import io
+
+class BitsAndBytesFilter:
+    def __init__(self):
+        self.original_stderr = sys.stderr
+        
+    def write(self, message):
+        if "cadam32bit_grad_fp32" not in message and "bitsandbytes" not in message.lower():
+            self.original_stderr.write(message)
+            
+    def flush(self):
+        self.original_stderr.flush()
+
+# Temporarily redirect stderr to filter bitsandbytes errors during imports
+original_stderr = sys.stderr
+sys.stderr = BitsAndBytesFilter()
+
+# Filter out timm deprecation warnings  
 warnings.filterwarnings("ignore", category=FutureWarning, module="timm.*")
 
 # Add src directory to Python path for imports
@@ -74,6 +100,7 @@ from ui.components import (
     create_seed_control,
     create_prompt_input,
     create_model_selector,
+    create_quantization_selector,
     create_post_processing_selector,
     create_expansion_controls,
     create_image_editor_component,
@@ -92,6 +119,38 @@ from utils.image_processing import ensure_rgb_format, cleanup_memory, save_image
 from utils.mask_utils import extract_inpainting_mask_from_editor, create_outpainting_mask
 from utils.canny_processing import preprocess_canny, generate_canny_preview
 from utils.hf_cache_manager import refresh_hf_cache_for_gradio, delete_selected_hf_items
+
+# Restore stderr after imports to avoid filtering application output
+sys.stderr = original_stderr
+
+# Additional protection against bitsandbytes AttributeError at runtime
+def safe_import_with_bitsandbytes_protection():
+    """Safely handle any remaining bitsandbytes imports during runtime."""
+    try:
+        # Monkey patch bitsandbytes if it gets imported
+        import builtins
+        original_import = builtins.__import__
+        
+        def protected_import(name, *args, **kwargs):
+            try:
+                module = original_import(name, *args, **kwargs)
+                if 'bitsandbytes' in name:
+                    # If bitsandbytes gets imported, add dummy attributes to prevent AttributeError
+                    if hasattr(module, 'cextension') and hasattr(module.cextension, 'CudaSetup'):
+                        try:
+                            if not hasattr(module.cextension.CudaSetup, 'cadam32bit_grad_fp32'):
+                                module.cextension.CudaSetup.cadam32bit_grad_fp32 = None
+                        except:
+                            pass
+                return module
+            except Exception:
+                return original_import(name, *args, **kwargs)
+        
+        builtins.__import__ = protected_import
+    except Exception:
+        pass  # Si la protection échoue, on continue
+
+safe_import_with_bitsandbytes_protection()
 
 # Global constants
 TEMP_IMAGES_DIR = "temp_images"
@@ -125,7 +184,7 @@ def show_image_details(evt: gr.SelectData):
     details_text = get_image_details(index)
     return details_text, index
 
-def generate_image_wrapper(prompt, model_alias, steps, seed, metadata, guidance, height, width, 
+def generate_image_wrapper(prompt, model_alias, quantization, steps, seed, metadata, guidance, height, width, 
                          lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
     """Wrapper function to adapt new LoRA state system to old ImageGenerator interface."""
     
@@ -180,6 +239,7 @@ def generate_image_wrapper(prompt, model_alias, steps, seed, metadata, guidance,
         "None",                   # post_processing_type
         None,                     # post_processing_image_path
         2.0,                      # post_processing_multiplier
+        quantization,             # quantization
         *lora_checkboxes,         # LoRA selections
         *lora_scales              # LoRA scales
     )
@@ -209,6 +269,7 @@ def create_main_interface():
             # Primary generation parameters
             with gr.Row():
                 model_alias = create_model_selector(image_generator.model_options, "schnell")
+                quantization = create_quantization_selector()
                 steps = gr.Number(
                     label="Inference steps - More steps = better quality but slower", 
                     value=4, 
@@ -256,7 +317,7 @@ def create_main_interface():
             generate_btn.click(
                 fn=generate_image_wrapper,
                 inputs=[
-                    prompt, model_alias, steps, seed, metadata, guidance, height, width,
+                    prompt, model_alias, quantization, steps, seed, metadata, guidance, height, width,
                     lora_components['state'], lora_components['strength_1'], 
                     lora_components['strength_2'], lora_components['strength_3']
                 ],
@@ -340,6 +401,7 @@ def create_main_interface():
                             step=1.0,
                             value=30.0
                         )
+                        flux_fill_quantization = create_quantization_selector()
 
                 # Generation button
                 flux_fill_generate_btn = create_generation_button("🎨 Generate Fill", "primary", "lg")
@@ -377,6 +439,7 @@ def create_main_interface():
                             step=0.1,
                             value=2.5
                         )
+                        kontext_quantization = create_quantization_selector()
 
                 # LoRA section for Kontext
                 gr.Markdown("### 🎨 LoRA Models - Optional style enhancements")
@@ -422,6 +485,7 @@ def create_main_interface():
                             step=0.1,
                             value=3.5
                         )
+                        depth_quantization = create_quantization_selector()
 
                 # LoRA section for FLUX Depth
                 gr.Markdown("### 🎨 LoRA Models - Optional style enhancements")
@@ -485,6 +549,7 @@ def create_main_interface():
                             step=0.5,
                             value=30.0
                         )
+                        canny_quantization = create_quantization_selector()
 
                 # LoRA section for FLUX Canny
                 gr.Markdown("### 🎨 LoRA Models - Optional style enhancements")
@@ -541,6 +606,7 @@ def create_main_interface():
                             step=0.1,
                             value=0.6
                         )
+                        redux_quantization = create_quantization_selector()
 
                 redux_generate_btn = create_generation_button("🔄 Generate Variation", "primary", "lg")
                 redux_output = create_output_image("FLUX Redux Result", 500)
@@ -617,11 +683,11 @@ def create_main_interface():
                 )
             
             # FLUX Fill generation event - wrapper to pass image_generator
-            def flux_fill_wrapper(fill_mode, image_editor_data, outpaint_image, prompt, steps, guidance_scale,
+            def flux_fill_wrapper(fill_mode, image_editor_data, outpaint_image, prompt, steps, guidance_scale, quantization,
                                 top_percent, bottom_percent, left_percent, right_percent,
                                 lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
                 return process_flux_fill(
-                    fill_mode, image_editor_data, outpaint_image, prompt, steps, guidance_scale,
+                    fill_mode, image_editor_data, outpaint_image, prompt, steps, guidance_scale, quantization,
                     top_percent, bottom_percent, left_percent, right_percent,
                     lora_state, lora_strength_1, lora_strength_2, lora_strength_3,
                     image_generator
@@ -630,7 +696,7 @@ def create_main_interface():
             flux_fill_generate_btn.click(
                 fn=flux_fill_wrapper,
                 inputs=[
-                    fill_mode, flux_fill_editor, flux_outpaint_image, flux_fill_prompt, flux_fill_steps, flux_fill_guidance,
+                    fill_mode, flux_fill_editor, flux_outpaint_image, flux_fill_prompt, flux_fill_steps, flux_fill_guidance, flux_fill_quantization,
                     flux_outpaint_top, flux_outpaint_bottom, flux_outpaint_left, flux_outpaint_right,
                     flux_fill_lora_components['state'],
                     flux_fill_lora_components['strength_1'], flux_fill_lora_components['strength_2'], flux_fill_lora_components['strength_3']
@@ -640,9 +706,9 @@ def create_main_interface():
             )
             
             # Kontext generation event - wrapper to pass image_generator
-            def kontext_wrapper(input_image, prompt, steps, guidance_scale, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
+            def kontext_wrapper(input_image, prompt, steps, guidance_scale, quantization, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
                 return process_kontext(
-                    input_image, prompt, steps, guidance_scale, lora_state,
+                    input_image, prompt, steps, guidance_scale, quantization, lora_state,
                     lora_strength_1, lora_strength_2, lora_strength_3,
                     image_generator
                 )
@@ -650,7 +716,7 @@ def create_main_interface():
             kontext_generate_btn.click(
                 fn=kontext_wrapper,
                 inputs=[
-                    kontext_input_image, kontext_prompt, kontext_steps, kontext_guidance,
+                    kontext_input_image, kontext_prompt, kontext_steps, kontext_guidance, kontext_quantization,
                     kontext_lora_components['state'],
                     kontext_lora_components['strength_1'], kontext_lora_components['strength_2'], kontext_lora_components['strength_3']
                 ],
@@ -684,9 +750,9 @@ def create_main_interface():
             )
             
             # Step 2: FLUX Depth generation event - wrapper to pass image_generator
-            def flux_depth_wrapper(input_image, prompt, steps, guidance_scale, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
+            def flux_depth_wrapper(input_image, prompt, steps, guidance_scale, quantization, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
                 return process_flux_depth(
-                    input_image, prompt, steps, guidance_scale, lora_state,
+                    input_image, prompt, steps, guidance_scale, quantization, lora_state,
                     lora_strength_1, lora_strength_2, lora_strength_3,
                     image_generator
                 )
@@ -694,7 +760,7 @@ def create_main_interface():
             depth_generate_btn.click(
                 fn=flux_depth_wrapper,
                 inputs=[
-                    depth_input_image, depth_prompt, depth_steps, depth_guidance,
+                    depth_input_image, depth_prompt, depth_steps, depth_guidance, depth_quantization,
                     depth_lora_components['state'],
                     depth_lora_components['strength_1'], depth_lora_components['strength_2'], depth_lora_components['strength_3']
                 ],
@@ -731,9 +797,9 @@ def create_main_interface():
             )
             
             # Step 2: FLUX Canny generation event - wrapper to pass image_generator
-            def flux_canny_wrapper(input_image, prompt, steps, guidance_scale, low_threshold, high_threshold, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
+            def flux_canny_wrapper(input_image, prompt, steps, guidance_scale, quantization, low_threshold, high_threshold, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
                 return process_flux_canny(
-                    input_image, prompt, steps, guidance_scale, low_threshold, high_threshold, lora_state,
+                    input_image, prompt, steps, guidance_scale, quantization, low_threshold, high_threshold, lora_state,
                     lora_strength_1, lora_strength_2, lora_strength_3,
                     image_generator
                 )
@@ -741,7 +807,7 @@ def create_main_interface():
             canny_generate_btn.click(
                 fn=flux_canny_wrapper,
                 inputs=[
-                    canny_input_image, canny_prompt, canny_steps, canny_guidance, canny_low_threshold, canny_high_threshold,
+                    canny_input_image, canny_prompt, canny_steps, canny_guidance, canny_quantization, canny_low_threshold, canny_high_threshold,
                     canny_lora_components['state'],
                     canny_lora_components['strength_1'], canny_lora_components['strength_2'], canny_lora_components['strength_3']
                 ],
@@ -750,16 +816,16 @@ def create_main_interface():
             )
             
             # FLUX Redux generation event - wrapper to pass image_generator
-            def flux_redux_wrapper(input_image, guidance_scale, steps, variation_strength):
+            def flux_redux_wrapper(input_image, guidance_scale, steps, variation_strength, quantization):
                 return process_flux_redux(
-                    input_image, guidance_scale, steps, variation_strength,
+                    input_image, guidance_scale, steps, variation_strength, quantization,
                     image_generator
                 )
             
             redux_generate_btn.click(
                 fn=flux_redux_wrapper,
                 inputs=[
-                    redux_input_image, redux_guidance, redux_steps, redux_variation_strength
+                    redux_input_image, redux_guidance, redux_steps, redux_variation_strength, redux_quantization
                 ],
                 outputs=redux_output,
                 show_progress=True

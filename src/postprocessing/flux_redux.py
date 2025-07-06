@@ -24,7 +24,7 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 
-def process_flux_redux(input_image, guidance_scale, steps, variation_strength, image_generator):
+def process_flux_redux(input_image, guidance_scale, steps, variation_strength, quantization, image_generator):
     """
     Process image variation using FLUX.1-Redux-dev model.
     
@@ -33,6 +33,7 @@ def process_flux_redux(input_image, guidance_scale, steps, variation_strength, i
         guidance_scale (float): Controls how closely output follows input (1.0-5.0)
         steps (int): Number of inference steps
         variation_strength (float): Intensity of variation (0.1-1.0)
+        quantization: "None", "8-bit", or "Auto" for memory optimization
         image_generator: Reference to ImageGenerator instance
         
     Returns:
@@ -82,6 +83,18 @@ def process_flux_redux(input_image, guidance_scale, steps, variation_strength, i
                 use_safetensors=True
             )
             pipe_prior_redux = pipe_prior_redux.to(device)
+            
+            # Apply quantization to Prior Redux pipeline if requested
+            if quantization and quantization != "None":
+                from utils.quantization import quantize_pipeline_components
+                
+                if quantization in ["8-bit", "Auto"]:
+                    print(f"🔧 Application quantification qint8 FLUX Prior Redux (économie mémoire ~70%)")
+                    success, error = quantize_pipeline_components(pipe_prior_redux, device, prefer_4bit=False, verbose=True)
+                    if not success:
+                        print(f"⚠️  Quantification Prior Redux qint8 échouée: {error}")
+                        print("🔄 Continuons sans quantification...")
+            
             print("✅ FLUX Prior Redux pipeline loaded")
         except Exception as e:
             print(f"❌ Failed to load FLUX Prior Redux pipeline: {e}")
@@ -98,6 +111,18 @@ def process_flux_redux(input_image, guidance_scale, steps, variation_strength, i
                 use_safetensors=True
             )
             pipe = pipe.to(device)
+            
+            # Apply quantization to base FLUX pipeline if requested
+            if quantization and quantization != "None":
+                from utils.quantization import quantize_pipeline_components
+                
+                if quantization in ["8-bit", "Auto"]:
+                    print(f"🔧 Application quantification qint8 FLUX Base (économie mémoire ~70%)")
+                    success, error = quantize_pipeline_components(pipe, device, prefer_4bit=False, verbose=True)
+                    if not success:
+                        print(f"⚠️  Quantification Base FLUX qint8 échouée: {error}")
+                        print("🔄 Continuons sans quantification...")
+            
             print("✅ FLUX base pipeline loaded")
         except Exception as e:
             print(f"❌ Failed to load FLUX base pipeline: {e}")

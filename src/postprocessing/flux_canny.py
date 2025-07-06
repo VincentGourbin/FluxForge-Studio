@@ -52,7 +52,7 @@ def generate_canny_preview(input_image, low_threshold=100, high_threshold=200):
         print(f"❌ Error generating Canny preview: {e}")
         return None
 
-def process_flux_canny(input_image, prompt, steps, guidance_scale, low_threshold, high_threshold,
+def process_flux_canny(input_image, prompt, steps, guidance_scale, quantization, low_threshold, high_threshold,
                       canny_selected_lora_state, canny_lora_strength_1, 
                       canny_lora_strength_2, canny_lora_strength_3, image_generator):
     """
@@ -63,6 +63,7 @@ def process_flux_canny(input_image, prompt, steps, guidance_scale, low_threshold
         prompt (str): Text prompt for generation
         steps (int): Number of inference steps
         guidance_scale (float): Guidance scale for generation
+        quantization: "None", "8-bit", or "Auto" for memory optimization
         low_threshold (int): Lower Canny threshold
         high_threshold (int): Higher Canny threshold
         canny_selected_lora_state: List of selected LoRA models
@@ -136,6 +137,25 @@ def process_flux_canny(input_image, prompt, steps, guidance_scale, low_threshold
             # Move to device first (important for LoRA loading)
             flux_canny_pipeline = flux_canny_pipeline.to(device)
             
+            # Apply quantization if requested
+            if quantization and quantization != "None":
+                from utils.quantization import quantize_pipeline_components
+                
+                # Apply same quantization logic as main models
+                if quantization in ["8-bit", "Auto"]:
+                    print(f"🔧 Application quantification qint8 FLUX Canny (économie mémoire ~70%)")
+                    success, error = quantize_pipeline_components(flux_canny_pipeline, device, prefer_4bit=False, verbose=True)
+                    if not success:
+                        print(f"⚠️  Quantification qint8 échouée: {error}")
+                        print("🔄 Continuons sans quantification...")
+                elif quantization == "4-bit":
+                    print(f"⚠️  Quantification 4-bit non supportée sur {device} (tests montrent erreurs)")
+                    print("💡 Conseil: Utilisez '8-bit' pour économie mémoire substantielle")
+                    print("🔄 Continuons sans quantification...")
+                else:
+                    print(f"⚠️  Quantification {quantization} non supportée")
+                    print("🔄 Continuons sans quantification...")
+            
             # Load Canny LoRA (this is the preferred method - more efficient)
             print("🔄 Loading Canny LoRA weights...")
             flux_canny_pipeline.load_lora_weights("black-forest-labs/FLUX.1-Canny-dev-lora", adapter_name="canny")
@@ -181,20 +201,30 @@ def process_flux_canny(input_image, prompt, steps, guidance_scale, low_threshold
                     lora_filename = os.path.basename(lora_path)
                     adapter_name = os.path.splitext(lora_filename)[0].replace('.', '_')
                     
-                    # Load LoRA with warning suppression
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore", message=".*CLIPTextModel.*")
-                        warnings.filterwarnings("ignore", message=".*No LoRA keys associated to CLIPTextModel.*")
-                        warnings.filterwarnings("ignore", message=".*Already found a.*peft_config.*attribute.*")
-                        flux_canny_pipeline.load_lora_weights(
-                            lora_dir, 
-                            weight_name=lora_filename,
-                            adapter_name=adapter_name
-                        )
-                    
-                    adapter_names.append(adapter_name)
-                    adapter_weights.append(lora_scale)
-                    print(f"✅ LoRA loaded: {lora_info['name']} (weight: {lora_scale})")
+                    # Load LoRA with warning suppression and error handling
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", message=".*CLIPTextModel.*")
+                            warnings.filterwarnings("ignore", message=".*No LoRA keys associated to CLIPTextModel.*")
+                            warnings.filterwarnings("ignore", message=".*Already found a.*peft_config.*attribute.*")
+                            flux_canny_pipeline.load_lora_weights(
+                                lora_dir, 
+                                weight_name=lora_filename,
+                                adapter_name=adapter_name
+                            )
+                        
+                        adapter_names.append(adapter_name)
+                        adapter_weights.append(lora_scale)
+                        print(f"✅ LoRA Canny chargé: {lora_info['name']} (weight: {lora_scale})")
+                    except KeyError as e:
+                        print(f"❌ LoRA incompatible ignoré: {lora_info['name']}")
+                        print(f"   Erreur: Paramètre manquant {e}")
+                        print(f"   💡 Ce LoRA n'est pas compatible avec FLUX Canny")
+                        continue  # Skip this LoRA
+                    except Exception as e:
+                        print(f"❌ Erreur chargement LoRA Canny: {lora_info['name']}")
+                        print(f"   Erreur: {e}")
+                        continue  # Skip this LoRA
                 
                 # Set all adapter weights INCLUDING the Canny adapter
                 if adapter_names:

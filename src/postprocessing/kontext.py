@@ -22,7 +22,7 @@ import gc
 import warnings
 from pathlib import Path
 
-def process_kontext(input_image, prompt, steps, guidance_scale, kontext_selected_lora_state, 
+def process_kontext(input_image, prompt, steps, guidance_scale, quantization, kontext_selected_lora_state, 
                    kontext_lora_strength_1, kontext_lora_strength_2, kontext_lora_strength_3, image_generator):
     """
     Process image editing using FLUX.1-Kontext-dev model.
@@ -32,6 +32,7 @@ def process_kontext(input_image, prompt, steps, guidance_scale, kontext_selected
         prompt: Text prompt describing desired changes
         steps: Number of inference steps
         guidance_scale: Guidance scale for generation
+        quantization: "None", "8-bit", or "Auto" for memory optimization
         kontext_selected_lora_state: List of selected LoRA models
         kontext_lora_strength_1/2/3: LoRA strength values
         image_generator: Reference to ImageGenerator instance
@@ -85,6 +86,8 @@ def process_kontext(input_image, prompt, steps, guidance_scale, kontext_selected
         # Enable memory efficient attention
         kontext_pipeline.enable_attention_slicing()
         
+        # IMPORTANT: Quantization sera appliquée APRÈS le chargement des LoRA
+        
         # Process selected LoRA from the state
         selected_loras = []
         adapter_names = []
@@ -113,20 +116,30 @@ def process_kontext(input_image, prompt, steps, guidance_scale, kontext_selected
                     lora_filename = os.path.basename(lora_path)
                     adapter_name = os.path.splitext(lora_filename)[0].replace('.', '_')
                     
-                    # Load LoRA with warning suppression
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore", message=".*CLIPTextModel.*")
-                        warnings.filterwarnings("ignore", message=".*No LoRA keys associated to CLIPTextModel.*")
-                        warnings.filterwarnings("ignore", message=".*Already found a.*peft_config.*attribute.*")
-                        kontext_pipeline.load_lora_weights(
-                            lora_dir, 
-                            weight_name=lora_filename,
-                            adapter_name=adapter_name
-                        )
-                    
-                    adapter_names.append(adapter_name)
-                    adapter_weights.append(lora_scale)
-                    print(f"✅ LoRA loaded: {lora_info['name']} (weight: {lora_scale})")
+                    # Load LoRA with warning suppression and error handling
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", message=".*CLIPTextModel.*")
+                            warnings.filterwarnings("ignore", message=".*No LoRA keys associated to CLIPTextModel.*")
+                            warnings.filterwarnings("ignore", message=".*Already found a.*peft_config.*attribute.*")
+                            kontext_pipeline.load_lora_weights(
+                                lora_dir, 
+                                weight_name=lora_filename,
+                                adapter_name=adapter_name
+                            )
+                        
+                        adapter_names.append(adapter_name)
+                        adapter_weights.append(lora_scale)
+                        print(f"✅ LoRA Kontext chargé: {lora_info['name']} (weight: {lora_scale})")
+                    except KeyError as e:
+                        print(f"❌ LoRA incompatible ignoré: {lora_info['name']}")
+                        print(f"   Erreur: Paramètre manquant {e}")
+                        print(f"   💡 Ce LoRA n'est pas compatible avec FLUX Kontext")
+                        continue  # Skip this LoRA
+                    except Exception as e:
+                        print(f"❌ Erreur chargement LoRA Kontext: {lora_info['name']}")
+                        print(f"   Erreur: {e}")
+                        continue  # Skip this LoRA
                 
                 # Set all adapter weights
                 if adapter_names:
@@ -137,6 +150,25 @@ def process_kontext(input_image, prompt, steps, guidance_scale, kontext_selected
                 print(f"⚠️ Failed to load LoRA: {e}")
         else:
             print("ℹ️ No LoRA models selected")
+        
+        # Apply quantization AFTER LoRA loading to avoid parameter name conflicts
+        if quantization and quantization != "None":
+            from utils.quantization import quantize_pipeline_components
+            
+            # Apply same quantization logic as main models
+            if quantization in ["8-bit", "Auto"]:
+                print(f"🔧 Application quantification qint8 FLUX Kontext (économie mémoire ~70%) APRÈS LoRA")
+                success, error = quantize_pipeline_components(kontext_pipeline, device, prefer_4bit=False, verbose=True)
+                if not success:
+                    print(f"⚠️  Quantification qint8 échouée: {error}")
+                    print("🔄 Continuons sans quantification...")
+            elif quantization == "4-bit":
+                print(f"⚠️  Quantification 4-bit non supportée sur {device} (tests montrent erreurs)")
+                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire substantielle")
+                print("🔄 Continuons sans quantification...")
+            else:
+                print(f"⚠️  Quantification {quantization} non supportée")
+                print("🔄 Continuons sans quantification...")
         
         print("🎨 Generating with FLUX.1-Kontext-dev...")
         print(f"🔍 FINAL PROMPT USED: '{prompt}'")

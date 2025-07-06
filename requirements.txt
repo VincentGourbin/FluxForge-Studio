@@ -1,15 +1,35 @@
-gradio
-torch
-torchvision
-transformers
-# Install diffusers from main branch for FLUX Kontext support
+# FluxForge Studio - Requirements
+# Optimisé pour Apple Silicon (MPS) et systèmes CUDA
+
+# Core dependencies
+gradio>=4.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+
+# FLUX.1 and diffusers (from main branch for latest features)
 git+https://github.com/huggingface/diffusers.git
-pillow
-ollama
-accelerate
-safetensors
-peft
-opencv-python
-numpy
-huggingface_hub
-pandas
+
+# Image processing
+pillow>=9.0.0
+opencv-python>=4.5.0
+numpy>=1.21.0
+
+# AI enhancement
+ollama>=0.1.0
+
+# ML utilities
+accelerate>=0.20.0
+safetensors>=0.3.0
+peft>=0.4.0
+
+# Quantization support (cross-platform, replaces bitsandbytes)
+optimum[quanto]>=0.1.0
+
+# Database and utilities
+pandas>=1.5.0
+huggingface_hub>=0.15.0
+
+# Apple Silicon optimizations
+# torch>=2.0.0 includes MPS support automatically
+# No additional dependencies needed for Metal Performance Shaders
