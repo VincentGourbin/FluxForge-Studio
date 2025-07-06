@@ -9,7 +9,7 @@ A comprehensive web-based interface for FLUX.1 image generation with dynamic too
 - **Memory Optimization**: 8-bit quantization with ~70% memory reduction using optimum.quanto
 - **Dynamic Tool System**: Modular selection of LoRA, ControlNet, and FLUX Tools
 - **LoRA Integration**: Multiple LoRA models with individual intensity control (0-1)
-- **ControlNet Support**: Canny edge detection with configurable thresholds
+- **FLUX Canny**: Specialized Canny edge ControlNet with configurable thresholds
 - **FLUX Tools**: Kontext for image editing and transformation
 - **Background Removal**: AI-powered background removal with rembg
 - **ControlNet Upscaler**: High-quality image upscaling using JasperAI's FLUX ControlNet
@@ -99,11 +99,12 @@ When using `--share`, the application will:
 - Automatic activation keyword integration
 - Multiple LoRA support (up to 3 simultaneously)
 
-**ControlNet**
-- Canny edge detection with configurable thresholds
-- Adjustable conditioning strength
-- Real-time Canny preview
-- Optional Canny edge image saving
+**FLUX Postprocessing Tools**
+- **FLUX Canny**: Canny edge detection with configurable thresholds
+- **FLUX Depth**: Depth-based image generation and control
+- **FLUX Fill**: Inpainting and outpainting capabilities
+- **FLUX Redux**: Image-to-image with Redux model
+- **Kontext**: Text-guided image editing
 
 **FLUX Tools**
 - Kontext for image editing
@@ -125,22 +126,44 @@ When using `--share`, the application will:
 ## 📁 Project Structure
 
 ```
-FluxForge-Studio/
-├── main.py                  # Main application entry point
-├── image_generator.py       # FLUX.1 generation with diffusers integration
-├── database.py             # SQLite database operations
-├── config.py               # Configuration and device setup
-├── prompt_enhancer.py      # Ollama prompt enhancement
-├── background_remover.py   # Background removal functionality
-├── lora_info.json          # LoRA model metadata
-├── requirements.txt        # Python dependencies
-├── docs/                   # Documentation
-│   ├── API.md              # API documentation
-│   ├── FEATURES.md         # Detailed features guide
-│   └── SETUP.md            # Setup instructions
-├── lora/                   # LoRA model files (.safetensors)
-├── outputimage/            # Generated images and metadata
-└── temp_images/            # Temporary file storage
+mflux-gradio/
+├── main.py                     # Main application entry point
+├── lora_info.json             # LoRA model metadata
+├── requirements.txt           # Python dependencies
+├── src/                       # Source code modules
+│   ├── core/                  # Core functionality
+│   │   ├── config.py          # Configuration and device setup
+│   │   └── database.py        # SQLite database operations
+│   ├── generator/             # Image generation
+│   │   └── image_generator.py # FLUX.1 generation with diffusers
+│   ├── enhancement/           # AI enhancement tools
+│   │   └── prompt_enhancer.py # Ollama prompt enhancement
+│   ├── postprocessing/        # FLUX postprocessing tools
+│   │   ├── background_remover.py # Background removal
+│   │   ├── flux_canny.py      # Canny edge ControlNet
+│   │   ├── flux_depth.py      # Depth ControlNet
+│   │   ├── flux_fill.py       # Inpainting/outpainting
+│   │   ├── flux_redux.py      # Image-to-image with Redux
+│   │   ├── kontext.py         # Text-guided image editing
+│   │   └── upscaler.py        # ControlNet upscaling
+│   ├── ui/                    # User interface components
+│   │   ├── components.py      # Gradio UI components
+│   │   └── lora_manager.py    # LoRA management interface
+│   └── utils/                 # Utility functions
+│       ├── canny_processing.py   # Canny edge detection
+│       ├── hf_cache_manager.py   # HuggingFace cache management
+│       ├── image_processing.py   # Image utilities
+│       ├── mask_utils.py         # Masking utilities
+│       ├── model_cache.py        # Model caching system
+│       └── quantization.py       # Memory quantization
+├── docs/                      # Documentation
+│   ├── API.md                # API documentation
+│   ├── FEATURES.md           # Detailed features guide
+│   ├── QUANTIZATION.md       # Quantization guide
+│   └── SETUP.md              # Setup instructions
+├── lora/                     # LoRA model files (.safetensors)
+├── outputimage/              # Generated images and metadata
+└── temp_images/              # Temporary file storage
 ```
 
 ## ⚙️ Configuration
@@ -168,10 +191,11 @@ The application automatically detects and uses:
 
 ## 🔧 Advanced Features
 
-### ControlNet Canny
+### FLUX Canny
 - **Configurable Thresholds**: Adjust low/high thresholds for edge detection
 - **Real-time Preview**: See Canny edges before generation
 - **Strength Control**: Fine-tune ControlNet influence (0-1)
+- **Specialized Pipeline**: Dedicated FLUX Canny implementation
 
 ### ControlNet Upscaler
 - **JasperAI Model**: Uses FLUX.1-dev-Controlnet-Upscaler
@@ -192,9 +216,10 @@ The application automatically detects and uses:
 - **Device Optimization**: Adapts to available hardware
 
 #### Quantization Features
-- **Supported Models**: FLUX Schnell, Dev, Fill, Kontext, Depth, Canny, Redux
+- **Supported Models**: FLUX Schnell, Dev, and all postprocessing tools (Fill, Kontext, Depth, Canny, Redux)
 - **Memory Reduction**: Up to 70% GPU memory savings with 8-bit quantization
 - **Performance**: Tested on MPS devices with minimal quality loss
+- **LoRA Compatibility**: Quantization applied AFTER LoRA loading for full compatibility
 - **Stability**: Conservative implementation using only tested qint8 quantization
 - **Fallback**: Graceful degradation if quantization fails
 
@@ -215,7 +240,8 @@ The application automatically detects and uses:
 **Tool Selection Issues**
 - Ensure LoRA files are in `lora/` directory
 - Check `lora_info.json` format
-- Verify ControlNet input images are valid
+- Verify input images are valid for postprocessing tools
+- Check that required models are downloaded for specific tools
 
 **Generation Failures**
 - Check console logs for detailed error information
