@@ -33,32 +33,6 @@ from pathlib import Path
 # Set PyTorch MPS fallback for Apple Silicon compatibility
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 
-# Suppress bitsandbytes warnings (we use optimum.quanto now)
-warnings.filterwarnings("ignore", message=".*bitsandbytes.*")
-warnings.filterwarnings("ignore", message=".*8-bit optimizers.*")
-warnings.filterwarnings("ignore", message=".*GPU quantization.*")
-warnings.filterwarnings("ignore", message=".*cadam32bit_grad_fp32.*")
-warnings.filterwarnings("ignore", category=UserWarning, module="bitsandbytes*")
-
-# Suppress specific bitsandbytes AttributeError
-import sys
-import io
-
-class BitsAndBytesFilter:
-    def __init__(self):
-        self.original_stderr = sys.stderr
-        
-    def write(self, message):
-        if "cadam32bit_grad_fp32" not in message and "bitsandbytes" not in message.lower():
-            self.original_stderr.write(message)
-            
-    def flush(self):
-        self.original_stderr.flush()
-
-# Temporarily redirect stderr to filter bitsandbytes errors during imports
-original_stderr = sys.stderr
-sys.stderr = BitsAndBytesFilter()
-
 # Filter out timm deprecation warnings  
 warnings.filterwarnings("ignore", category=FutureWarning, module="timm.*")
 
@@ -120,37 +94,6 @@ from utils.mask_utils import extract_inpainting_mask_from_editor, create_outpain
 from utils.canny_processing import preprocess_canny, generate_canny_preview
 from utils.hf_cache_manager import refresh_hf_cache_for_gradio, delete_selected_hf_items
 
-# Restore stderr after imports to avoid filtering application output
-sys.stderr = original_stderr
-
-# Additional protection against bitsandbytes AttributeError at runtime
-def safe_import_with_bitsandbytes_protection():
-    """Safely handle any remaining bitsandbytes imports during runtime."""
-    try:
-        # Monkey patch bitsandbytes if it gets imported
-        import builtins
-        original_import = builtins.__import__
-        
-        def protected_import(name, *args, **kwargs):
-            try:
-                module = original_import(name, *args, **kwargs)
-                if 'bitsandbytes' in name:
-                    # If bitsandbytes gets imported, add dummy attributes to prevent AttributeError
-                    if hasattr(module, 'cextension') and hasattr(module.cextension, 'CudaSetup'):
-                        try:
-                            if not hasattr(module.cextension.CudaSetup, 'cadam32bit_grad_fp32'):
-                                module.cextension.CudaSetup.cadam32bit_grad_fp32 = None
-                        except:
-                            pass
-                return module
-            except Exception:
-                return original_import(name, *args, **kwargs)
-        
-        builtins.__import__ = protected_import
-    except Exception:
-        pass  # Si la protection échoue, on continue
-
-safe_import_with_bitsandbytes_protection()
 
 # Global constants
 TEMP_IMAGES_DIR = "temp_images"

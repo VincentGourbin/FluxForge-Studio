@@ -1,6 +1,6 @@
-# MFLUX-Gradio Setup Guide
+# FluxForge Studio Setup Guide
 
-This comprehensive guide will help you set up MFLUX-Gradio on your system.
+This comprehensive guide will help you set up FluxForge Studio on your system with the latest diffusers-based architecture.
 
 ## 📋 System Requirements
 
@@ -21,8 +21,8 @@ This comprehensive guide will help you set up MFLUX-Gradio on your system.
 - **RTX 4090**: Optimal performance with full precision
 - **RTX 4080/4070**: Good performance with 8-bit quantization
 - **RTX 3080/3070**: Recommended with 8-bit quantization
-- **RTX 3060**: Works with 4-bit quantization
-- **GTX 1660+**: Basic functionality with 4-bit quantization
+- **RTX 3060**: Works with 8-bit quantization
+- **GTX 1660+**: Basic functionality with 8-bit quantization
 
 #### Apple Silicon (MPS)
 - **M3 Max/Ultra**: Excellent performance
@@ -39,8 +39,8 @@ This comprehensive guide will help you set up MFLUX-Gradio on your system.
 
 ### 1. Clone Repository
 ```bash
-git clone <repository-url>
-cd mflux-gradio
+git clone https://github.com/VincentGourbin/FluxForge-Studio.git
+cd FluxForge-Studio
 ```
 
 ### 2. Create Virtual Environment
@@ -60,23 +60,38 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-#### Alternative: Manual Installation
-```bash
-pip install gradio torch torchvision transformers pillow ollama mflux
-```
+The requirements.txt includes:
+- **diffusers**: From main branch for latest FLUX features
+- **optimum[quanto]**: For cross-platform 8-bit quantization
+- **torch**: With MPS support for Apple Silicon
+- **gradio**: Web interface framework
+- **transformers**: Model loading and processing
 
 ### 4. Verify Installation
 ```bash
 python -c "import torch; print(f'PyTorch: {torch.__version__}')"
 python -c "import gradio; print(f'Gradio: {gradio.__version__}')"
+python -c "import diffusers; print(f'Diffusers: {diffusers.__version__}')"
+python -c "from optimum.quanto import qint8; print('Quantization: OK')"
 ```
 
 ## 🔧 Configuration
 
 ### 1. Directory Structure
-Ensure the following directories exist:
-```bash
-mkdir -p lora outputimage temp_images temp_train stepwise_output docs
+The project uses a modular src/ structure:
+```
+FluxForge-Studio/
+├── main.py                     # Application entry point
+├── src/                        # Source code modules
+│   ├── core/                   # Core functionality
+│   ├── generator/              # Image generation
+│   ├── postprocessing/         # FLUX tools (Canny, Depth, Fill, etc.)
+│   ├── enhancement/            # Prompt enhancement
+│   ├── ui/                     # User interface
+│   └── utils/                  # Utilities and quantization
+├── lora/                       # LoRA model files
+├── outputimage/                # Generated images
+└── temp_images/                # Temporary storage
 ```
 
 ### 2. LoRA Configuration
@@ -92,15 +107,15 @@ Create and configure `lora_info.json`:
 ```
 
 ### 3. Model Downloads
-FLUX.1 models will be downloaded automatically on first use:
-- **Schnell**: ~12GB download
-- **Dev**: ~24GB download
+FLUX.1 models are downloaded automatically via diffusers:
+- **Schnell**: `black-forest-labs/FLUX.1-schnell` (~12GB)
+- **Dev**: `black-forest-labs/FLUX.1-dev` (~24GB)
 
-#### Manual Model Download (Optional)
-```bash
-# Download models manually if needed
-# Models will be cached in ~/.cache/huggingface/
-```
+Additional models for postprocessing tools:
+- **FLUX Canny**: `black-forest-labs/FLUX.1-Canny-dev`
+- **FLUX Depth**: `black-forest-labs/FLUX.1-Depth-dev`
+- **FLUX Fill**: `black-forest-labs/FLUX.1-Fill-dev`
+- **FLUX Redux**: `black-forest-labs/FLUX.1-Redux-dev`
 
 ## 🔌 Ollama Setup (Optional)
 
@@ -113,7 +128,7 @@ Visit [ollama.ai](https://ollama.ai/) and download for your platform.
 ollama pull llama3.2
 ollama pull mistral
 
-# Vision models  
+# Vision models for image analysis
 ollama pull llama3.2-vision
 ollama pull bakllava
 
@@ -135,6 +150,13 @@ ollama serve
 python main.py
 ```
 
+For public sharing with authentication:
+```bash
+python main.py --share
+# or
+python main.py -s
+```
+
 ### 2. Access Interface
 Open your browser and navigate to:
 ```
@@ -146,56 +168,51 @@ http://localhost:7860
 2. Enter a simple prompt: "a beautiful landscape"
 3. Select **schnell** model
 4. Set **4 steps**
-5. Click **Generate Image**
+5. Enable **8-bit quantization** if needed
+6. Click **Generate Image**
 
-## 📂 File Organization
+## 📂 Architecture Overview
 
-### Project Structure
-```
-mflux-gradio/
-├── mflux-gradio.py          # Main application
-├── image_generator.py       # Core generation logic
-├── database.py             # Database operations
-├── config.py               # Configuration
-├── train.py                # Training script
-├── prompt_enhancer.py      # Prompt enhancement
-├── background_remover.py   # Background removal
-├── requirements.txt        # Dependencies
-├── README.md              # Documentation
-├── CLAUDE.md              # Claude Code guidance
-├── lora_info.json         # LoRA configuration
-├── lora/                  # LoRA model files
-├── outputimage/           # Generated images
-├── temp_images/           # Training images
-├── temp_train/            # Training configs
-├── stepwise_output/       # Debug outputs
-├── docs/                  # Documentation
-└── generated_images.db    # History database
-```
+### Core Components
+- **src/core/config.py**: Device detection, model options, LoRA data
+- **src/core/database.py**: SQLite operations for image history
+- **src/generator/image_generator.py**: Main FLUX generation with diffusers
+- **src/utils/quantization.py**: Cross-platform quantization with optimum.quanto
 
-### Important Paths
-- **LoRA Models**: `./lora/`
-- **Generated Images**: `./outputimage/`
-- **Training Data**: `./temp_images/`
-- **Database**: `./generated_images.db`
+### FLUX Postprocessing Tools
+- **src/postprocessing/flux_canny.py**: Canny edge ControlNet
+- **src/postprocessing/flux_depth.py**: Depth-based generation
+- **src/postprocessing/flux_fill.py**: Inpainting and outpainting
+- **src/postprocessing/flux_redux.py**: Image-to-image with Redux
+- **src/postprocessing/kontext.py**: Text-guided image editing
+- **src/postprocessing/upscaler.py**: ControlNet upscaling
+
+### Important Features
+- **Model Caching**: Intelligent caching prevents unnecessary reloads
+- **LoRA Compatibility**: Quantization applied AFTER LoRA loading
+- **Memory Optimization**: Up to 70% memory reduction with 8-bit quantization
+- **Cross-Platform**: MPS (Apple Silicon), CUDA, and CPU support
 
 ## ⚙️ Environment Configuration
 
 ### Environment Variables
 ```bash
-# Optional: Set environment variables
-export PYTORCH_ENABLE_MPS_FALLBACK=1  # For Apple Silicon
-export CUDA_VISIBLE_DEVICES=0         # Specify GPU
-export GRADIO_SERVER_NAME="0.0.0.0"   # Network access
-export GRADIO_SERVER_PORT=7860        # Custom port
+# Apple Silicon optimization
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+
+# CUDA configuration
+export CUDA_VISIBLE_DEVICES=0
+
+# Gradio configuration
+export GRADIO_SERVER_NAME="0.0.0.0"
+export GRADIO_SERVER_PORT=7860
 ```
 
 ### Memory Optimization
 #### For Limited VRAM
-```python
-# In config.py, force quantization
-quantize_options = [4]  # Force 4-bit only
-```
+- Enable **8-bit quantization** in the interface
+- Reduce image dimensions (1024x1024 recommended)
+- Limit number of active LoRAs
 
 #### For Apple Silicon
 ```bash
@@ -211,16 +228,15 @@ To use local FLUX.1 models:
 2. In the Generation tab, enter the path in "Custom Model Path"
 3. Generate as normal
 
-### Database Migration
-If migrating from older versions:
-```bash
-python migratedatabase.py
-```
+### Quantization Settings
+The application supports:
+- **8-bit quantization**: Recommended for most systems (70% memory reduction)
+- **4-bit quantization**: Currently disabled (experimental)
+- **No quantization**: Full precision for maximum quality
 
 ### Network Access
-To access from other devices:
+To access from other devices, modify launch parameters in `main.py`:
 ```python
-# In mflux-gradio.py, modify launch parameters:
 demo.queue().launch(
     server_name="0.0.0.0",  # Allow external access
     server_port=7860,
@@ -234,12 +250,12 @@ demo.queue().launch(
 
 #### "CUDA out of memory"
 **Solutions:**
-1. Enable quantization (8-bit or 4-bit)
+1. Enable 8-bit quantization
 2. Reduce image dimensions
 3. Close other GPU applications
 4. Restart the application
 
-#### "Module not found: mflux"
+#### "Module not found: diffusers"
 **Solutions:**
 1. Verify virtual environment activation
 2. Reinstall requirements: `pip install -r requirements.txt`
@@ -251,19 +267,18 @@ demo.queue().launch(
 2. Start Ollama service: `ollama serve`
 3. Verify models installed: `ollama list`
 
+#### LoRA loading failures
+**Common causes:**
+1. **Quantization order**: Ensure quantization is applied AFTER LoRA loading
+2. **File format**: Use .safetensors files
+3. **Compatibility**: Some LoRAs may not be compatible with FLUX
+
 #### Slow generation
 **Causes & Solutions:**
 1. **Large images**: Reduce dimensions to 1024x1024
 2. **No quantization**: Enable 8-bit quantization
 3. **CPU fallback**: Ensure GPU drivers installed
 4. **Multiple LoRAs**: Reduce number of active LoRAs
-
-#### Training fails
-**Common causes:**
-1. **Insufficient disk space**: Ensure 5GB+ free
-2. **Invalid images**: Use JPEG/PNG formats
-3. **Memory issues**: Reduce batch size to 1
-4. **Path issues**: Check image file paths
 
 ### Performance Optimization
 
@@ -275,23 +290,14 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 ```
 
 #### Memory Management
-```python
-# Clear GPU cache periodically
-import torch
-torch.cuda.empty_cache()
-```
+- The application automatically clears GPU cache after generation
+- Model caching prevents unnecessary reloads
+- Quantization can reduce memory usage by 70%
 
 #### Model Caching
 - Keep models loaded by maintaining parameter consistency
 - Avoid changing quantization unnecessarily
 - Use same LoRA combinations when possible
-
-### Debug Mode
-Enable debug logging:
-```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
-```
 
 ## 📊 System Monitoring
 
@@ -310,7 +316,7 @@ sudo powermetrics --show-usage-summary
 df -h
 
 # Monitor specific directories
-du -sh outputimage/ lora/ temp_train/
+du -sh outputimage/ lora/ temp_images/
 ```
 
 ### Monitor Memory
@@ -328,7 +334,7 @@ pip install --upgrade -r requirements.txt
 ```
 
 ### Updating Models
-Models update automatically. To force update:
+Models update automatically via diffusers. To force update:
 ```bash
 # Clear Hugging Face cache
 rm -rf ~/.cache/huggingface/
@@ -338,18 +344,6 @@ rm -rf ~/.cache/huggingface/
 ```bash
 # Backup database
 cp generated_images.db generated_images.db.backup
-
-# Clean up orphaned records
-python -c "
-from database import *
-# Custom cleanup script
-"
-```
-
-### Log Rotation
-```bash
-# If logs become large
-truncate -s 0 application.log
 ```
 
 ## 🚨 Security Considerations
@@ -360,7 +354,7 @@ truncate -s 0 application.log
 - Consider VPN for remote access
 
 ### File Security
-- Validate uploaded training images
+- Validate uploaded images
 - Monitor disk usage for DoS prevention
 - Regular security updates
 
@@ -375,21 +369,29 @@ truncate -s 0 application.log
 - **README.md**: Basic usage guide
 - **FEATURES.md**: Detailed feature documentation
 - **API.md**: Technical API reference
+- **QUANTIZATION.md**: Quantization guide
 - **CLAUDE.md**: Development guidance
+
+## 🔗 Repository Information
+
+**Project**: FluxForge Studio  
+**Repository**: https://github.com/VincentGourbin/FluxForge-Studio  
+**Main Directory**: FluxForge-Studio/ (after cloning)  
+**Entry Point**: main.py
 
 ### Common Commands Reference
 ```bash
 # Start application
 python main.py
 
-# Train standalone
-python train.py --train-config config.json
-
-# Database migration
-python migratedatabase.py
+# Start with public sharing
+python main.py --share
 
 # Check installation
-python -c "import torch, gradio, transformers; print('OK')"
+python -c "import torch, gradio, diffusers; print('OK')"
+
+# Test quantization
+python -c "from optimum.quanto import qint8; print('Quantization OK')"
 ```
 
 ### Support Resources
@@ -397,3 +399,23 @@ python -c "import torch, gradio, transformers; print('OK')"
 2. Review troubleshooting section
 3. Verify system requirements
 4. Test with minimal configuration
+
+## 🎯 Key Differences from Previous Versions
+
+### Architecture Changes
+- **Diffusers-based**: Migrated from mflux to diffusers library
+- **Modular structure**: Organized src/ directory with logical modules
+- **Quantization**: Cross-platform support with optimum.quanto
+- **FLUX Tools**: Dedicated modules for Canny, Depth, Fill, Redux, Kontext
+
+### Performance Improvements
+- **LoRA Compatibility**: Quantization applied after LoRA loading
+- **Memory Optimization**: Up to 70% memory reduction
+- **Model Caching**: Intelligent caching system
+- **Cross-Platform**: Better MPS and CUDA support
+
+### New Features
+- **Dynamic Tool System**: Modular selection of postprocessing tools
+- **Enhanced Quantization**: 8-bit quantization with graceful fallback
+- **Improved UI**: Better organization and user experience
+- **Comprehensive Logging**: Detailed generation parameter tracking
