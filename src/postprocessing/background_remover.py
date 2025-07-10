@@ -42,6 +42,10 @@ def remove_background(input_image, modelbgrm):
     Returns:
         PIL.Image: Image with background removed (transparent background)
     """
+    import datetime
+    import random
+    from pathlib import Path
+    
     # Convert to RGB format
     image = input_image.convert("RGB")
     
@@ -59,5 +63,36 @@ def remove_background(input_image, modelbgrm):
     
     # Apply alpha channel (transparency) using the mask
     image.putalpha(mask)
+    
+    # Save result to file and database
+    timestamp = datetime.datetime.now()
+    timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Generate seed for database consistency
+    seed = random.randint(1, 2**32 - 1)
+    
+    # Create output directory and filename
+    output_dir = Path("outputimage")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_filename = output_dir / f"bgrm_{timestamp.strftime('%Y%m%d_%H%M%S')}_{seed}.png"
+    
+    # Save the image with transparent background
+    image.save(str(output_filename))
+    
+    # Save to database
+    try:
+        from core.database import save_background_removal_generation
+        save_background_removal_generation(
+            timestamp_str,
+            seed,
+            image.size[1],  # height
+            image.size[0],  # width
+            str(output_filename)
+        )
+        print(f"📊 Background removal saved to database: {timestamp_str}")
+    except Exception as e:
+        print(f"⚠️ Could not save background removal to database: {e}")
+    
+    print(f"💾 Background removal result saved: {output_filename}")
     
     return image

@@ -253,6 +253,31 @@ def save_upscaler_generation(timestamp, seed, multiplier, height, width, output_
     conn.commit()
     conn.close()
 
+def save_background_removal_generation(timestamp, seed, height, width, output_filename):
+    """
+    Save background removal generation to database.
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': 'Background removal processing',
+        'model_alias': 'RMBG-2.0',
+        'steps': 1,
+        'guidance': 1.0,
+        'height': height,
+        'width': width,
+        'lora_paths': [],
+        'lora_scales': []
+    }
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'background_removal', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
 def save_controlnet_generation(timestamp, seed, prompt, model_alias, controlnet_type,
                              controlnet_strength, steps, guidance, height, width, 
                              lora_paths, lora_scales, output_filename):

@@ -137,7 +137,14 @@ def process_flux_canny(input_image, prompt, steps, guidance_scale, quantization,
             # Move to device first (important for LoRA loading)
             flux_canny_pipeline = flux_canny_pipeline.to(device)
             
-            # Apply quantization if requested
+            # Load Canny LoRA BEFORE quantization (important for compatibility)
+            print("🔄 Loading Canny LoRA weights...")
+            flux_canny_pipeline.load_lora_weights("black-forest-labs/FLUX.1-Canny-dev-lora", adapter_name="canny")
+            flux_canny_pipeline.set_adapters("canny", 0.85)
+            print("✅ Loaded FLUX.1-dev with Canny LoRA successfully")
+            print(f"🎛️ Canny LoRA adapter active at 0.85 strength")
+            
+            # Apply quantization AFTER loading LoRA for compatibility
             if quantization and quantization != "None":
                 from utils.quantization import quantize_pipeline_components
                 
@@ -155,13 +162,6 @@ def process_flux_canny(input_image, prompt, steps, guidance_scale, quantization,
                 else:
                     print(f"⚠️  Quantification {quantization} non supportée")
                     print("🔄 Continuons sans quantification...")
-            
-            # Load Canny LoRA (this is the preferred method - more efficient)
-            print("🔄 Loading Canny LoRA weights...")
-            flux_canny_pipeline.load_lora_weights("black-forest-labs/FLUX.1-Canny-dev-lora", adapter_name="canny")
-            flux_canny_pipeline.set_adapters("canny", 0.85)
-            print("✅ Loaded FLUX.1-dev with Canny LoRA successfully")
-            print(f"🎛️ Canny LoRA adapter active at 0.85 strength")
         except Exception as e:
             print(f"❌ Failed to load FLUX.1-dev with Canny LoRA: {e}")
             print("💡 Make sure FLUX.1-dev and FLUX.1-Canny-dev-lora are available")

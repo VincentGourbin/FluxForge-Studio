@@ -22,13 +22,14 @@ import warnings
 from pathlib import Path
 from PIL import Image
 
-def upscale_image(input_image, upscale_factor):
+def upscale_image(input_image, upscale_factor, quantization="None"):
     """
     High-quality image upscaling using FLUX.1-dev ControlNet Upscaler.
     
     Args:
         input_image (PIL.Image): Input image to upscale
         upscale_factor (float): Upscaling multiplier (1.0-4.0)
+        quantization (str): Quantization method (None, 4-bit, 8-bit, Auto)
         
     Returns:
         PIL.Image: Upscaled image or None if processing fails
@@ -97,6 +98,28 @@ def upscale_image(input_image, upscale_factor):
         
         # Enable memory efficient attention
         upscaler_pipeline.enable_attention_slicing()
+        
+        # Apply quantization if specified
+        if quantization and quantization != "None":
+            try:
+                from utils.quantization import quantize_pipeline_components
+                
+                if quantization in ["8-bit", "Auto"]:
+                    print(f"🔧 Application quantification qint8 pour upscaler...")
+                    success, error = quantize_pipeline_components(upscaler_pipeline, device, prefer_4bit=False, verbose=True)
+                    if not success:
+                        print(f"⚠️  Quantification qint8 échouée: {error}")
+                        print("🔄 Continuons sans quantification...")
+                elif quantization == "4-bit":
+                    print(f"⚠️  Quantification 4-bit non supportée pour upscaler")
+                    print("💡 Conseil: Utilisez '8-bit' pour économie mémoire")
+                    print("🔄 Continuons sans quantification...")
+                else:
+                    print(f"⚠️  Quantification {quantization} non supportée pour upscaler")
+                    print("🔄 Continuons sans quantification...")
+            except ImportError:
+                print("⚠️  Module quantization non disponible")
+                print("🔄 Continuons sans quantification...")
         
         # Ensure input image is RGB
         if input_image.mode != 'RGB':
@@ -176,13 +199,14 @@ def upscale_image(input_image, upscale_factor):
         traceback.print_exc()
         return None
 
-def process_upscaler(input_image_path, multiplier):
+def process_upscaler(input_image_path, multiplier, quantization="None"):
     """
     Process image with upscaler using ControlNet upscaler.
     
     Args:
         input_image_path (str): Path to input image file
         multiplier (float): Upscaling multiplier (1.5-4.0)
+        quantization (str): Quantization method (None, 4-bit, 8-bit, Auto)
         
     Returns:
         PIL.Image: Upscaled image or None if processing fails
@@ -196,7 +220,7 @@ def process_upscaler(input_image_path, multiplier):
         input_image = Image.open(input_image_path)
         
         # Use the main upscaling function
-        return upscale_image(input_image, multiplier)
+        return upscale_image(input_image, multiplier, quantization)
         
     except Exception as e:
         print(f"❌ Error during upscaling: {e}")

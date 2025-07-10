@@ -127,6 +127,9 @@ def list_cached_flux_models():
         "black-forest-labs/FLUX.1-Depth-dev-lora",
         "black-forest-labs/FLUX.1-Canny-dev-lora",
         
+        # Upscaler models (from config.py)
+        "jasperai/Flux.1-dev-Controlnet-Upscaler",
+        
         # Other utility models
         "LiheYoung/depth-anything-large-hf",  # Depth map generation
         "briaai/RMBG-2.0"  # Background removal

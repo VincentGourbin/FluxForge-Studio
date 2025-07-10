@@ -93,6 +93,20 @@ from utils.image_processing import ensure_rgb_format, cleanup_memory, save_image
 from utils.mask_utils import extract_inpainting_mask_from_editor, create_outpainting_mask
 from utils.canny_processing import preprocess_canny, generate_canny_preview
 from utils.hf_cache_manager import refresh_hf_cache_for_gradio, delete_selected_hf_items
+from utils.queue_helpers import (
+    queue_standard_generation,
+    queue_flux_fill,
+    queue_kontext,
+    queue_flux_depth,
+    queue_flux_canny,
+    queue_flux_redux,
+    queue_background_removal,
+    queue_upscaling
+)
+
+# Import processing queue modules
+from core.processing_queue import processing_queue
+from ui.processing_tab import create_processing_tab, setup_processing_tab_events
 
 
 # Global constants
@@ -252,19 +266,18 @@ def create_main_interface():
             lora_components = create_lora_manager_interface("", image_generator.lora_data)
             setup_lora_events(lora_components, image_generator.lora_data)
 
-            # Generation button and output
-            generate_btn = create_generation_button("🎨 Generate")
-            output_image = create_output_image("Generated Image", 500)
-
-            # Set up generation event
+            # Generation button and queue feedback
+            generate_btn = create_generation_button("🎨 Add to Queue")
+            queue_feedback = gr.Markdown(value="**Ready to queue tasks** - Click Generate to add to processing queue")
+            
             generate_btn.click(
-                fn=generate_image_wrapper,
+                fn=queue_standard_generation,
                 inputs=[
                     prompt, model_alias, quantization, steps, seed, metadata, guidance, height, width,
                     lora_components['state'], lora_components['strength_1'], 
                     lora_components['strength_2'], lora_components['strength_3']
                 ],
-                outputs=output_image
+                outputs=queue_feedback
             )
 
         # ==============================================================================
@@ -272,6 +285,11 @@ def create_main_interface():
         # ==============================================================================
         with gr.Tab("Post-Processing"):
             gr.Markdown("## Advanced post-processing tools")
+            
+            # Queue feedback for post-processing
+            post_processing_queue_feedback = gr.Markdown(
+                value="**Ready to queue post-processing tasks** - Select a tool and click its button to add to processing queue"
+            )
             
             # Processing type selector
             processing_type = create_post_processing_selector([
@@ -347,8 +365,7 @@ def create_main_interface():
                         flux_fill_quantization = create_quantization_selector()
 
                 # Generation button
-                flux_fill_generate_btn = create_generation_button("🎨 Generate Fill", "primary", "lg")
-                flux_fill_output = create_output_image("FLUX Fill Result", 500)
+                flux_fill_generate_btn = create_generation_button("🎨 Add FLUX Fill to Queue", "primary", "lg")
 
             # Kontext controls
             with gr.Group(visible=False) as kontext_group:
@@ -389,8 +406,7 @@ def create_main_interface():
                 kontext_lora_components = create_lora_manager_interface("kontext_", image_generator.lora_data)
                 setup_lora_events(kontext_lora_components, image_generator.lora_data, "kontext_")
 
-                kontext_generate_btn = create_generation_button("🖼️ Generate Edit", "primary", "lg")
-                kontext_output = create_output_image("Kontext Result", 500)
+                kontext_generate_btn = create_generation_button("🖼️ Add Kontext Edit to Queue", "primary", "lg")
 
             # FLUX Depth controls
             with gr.Group(visible=False) as flux_depth_group:
@@ -436,8 +452,7 @@ def create_main_interface():
                 setup_lora_events(depth_lora_components, image_generator.lora_data, "depth_")
 
                 # Step 2: Generate final image
-                depth_generate_btn = create_generation_button("🌊 Generate with Depth", "primary", "lg")
-                depth_output = create_output_image("FLUX Depth Result", 500)
+                depth_generate_btn = create_generation_button("🌊 Add FLUX Depth to Queue", "primary", "lg")
 
             # FLUX Canny controls
             with gr.Group(visible=False) as flux_canny_group:
@@ -500,8 +515,7 @@ def create_main_interface():
                 setup_lora_events(canny_lora_components, image_generator.lora_data, "canny_")
 
                 # Step 2: Generate final image
-                canny_generate_btn = create_generation_button("🖋️ Generate with Canny", "primary", "lg")
-                canny_output = create_output_image("FLUX Canny Result", 500)
+                canny_generate_btn = create_generation_button("🖋️ Add FLUX Canny to Queue", "primary", "lg")
 
             # Background Removal controls
             with gr.Group(visible=False) as bg_removal_group:
@@ -512,8 +526,7 @@ def create_main_interface():
                     type="pil",
                     height=400
                 )
-                bg_remove_btn = create_generation_button("🎭 Remove Background", "primary", "lg")
-                bg_output = create_output_image("Background Removed", 500)
+                bg_remove_btn = create_generation_button("🎭 Add Background Removal to Queue", "primary", "lg")
 
             # FLUX Redux controls
             with gr.Group(visible=False) as flux_redux_group:
@@ -551,27 +564,31 @@ def create_main_interface():
                         )
                         redux_quantization = create_quantization_selector()
 
-                redux_generate_btn = create_generation_button("🔄 Generate Variation", "primary", "lg")
-                redux_output = create_output_image("FLUX Redux Result", 500)
+                redux_generate_btn = create_generation_button("🔄 Add FLUX Redux to Queue", "primary", "lg")
 
             # Upscaling controls
             with gr.Group(visible=False) as upscaling_group:
                 gr.Markdown("### 📈 Image Upscaling")
                 
-                upscale_input_image = gr.Image(
-                    label="Input Image",
-                    type="pil",
-                    height=400
-                )
-                upscale_factor = gr.Slider(
-                    label="Upscale Factor",
-                    minimum=1.0,
-                    maximum=10.0,
-                    step=0.5,
-                    value=2.0
-                )
-                upscale_btn = create_generation_button("📈 Upscale Image", "primary", "lg")
-                upscale_output = create_output_image("Upscaled Image", 500)
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        upscale_input_image = gr.Image(
+                            label="Input Image",
+                            type="pil",
+                            height=400
+                        )
+                    
+                    with gr.Column(scale=1):
+                        upscale_factor = gr.Slider(
+                            label="Upscale Factor",
+                            minimum=1.0,
+                            maximum=10.0,
+                            step=0.5,
+                            value=2.0
+                        )
+                        upscale_quantization = create_quantization_selector()
+                
+                upscale_btn = create_generation_button("📈 Add Upscale Image to Queue", "primary", "lg")
 
             # Set up processing type change event
             processing_type.change(
@@ -637,14 +654,14 @@ def create_main_interface():
                 )
             
             flux_fill_generate_btn.click(
-                fn=flux_fill_wrapper,
+                fn=queue_flux_fill,
                 inputs=[
                     fill_mode, flux_fill_editor, flux_outpaint_image, flux_fill_prompt, flux_fill_steps, flux_fill_guidance, flux_fill_quantization,
                     flux_outpaint_top, flux_outpaint_bottom, flux_outpaint_left, flux_outpaint_right,
                     flux_fill_lora_components['state'],
                     flux_fill_lora_components['strength_1'], flux_fill_lora_components['strength_2'], flux_fill_lora_components['strength_3']
                 ],
-                outputs=flux_fill_output,
+                outputs=post_processing_queue_feedback,
                 show_progress=True
             )
             
@@ -657,29 +674,29 @@ def create_main_interface():
                 )
             
             kontext_generate_btn.click(
-                fn=kontext_wrapper,
+                fn=queue_kontext,
                 inputs=[
                     kontext_input_image, kontext_prompt, kontext_steps, kontext_guidance, kontext_quantization,
                     kontext_lora_components['state'],
                     kontext_lora_components['strength_1'], kontext_lora_components['strength_2'], kontext_lora_components['strength_3']
                 ],
-                outputs=kontext_output,
+                outputs=post_processing_queue_feedback,
                 show_progress=True
             )
             
             # Background removal event
             bg_remove_btn.click(
-                fn=lambda img: remove_background(img, modelbgrm),
+                fn=queue_background_removal,
                 inputs=bg_input_image,
-                outputs=bg_output,
+                outputs=post_processing_queue_feedback,
                 show_progress=True
             )
             
             # Upscaling event
             upscale_btn.click(
-                fn=upscale_image,
-                inputs=[upscale_input_image, upscale_factor],
-                outputs=upscale_output,
+                fn=queue_upscaling,
+                inputs=[upscale_input_image, upscale_factor, upscale_quantization],
+                outputs=post_processing_queue_feedback,
                 show_progress=True
             )
             
@@ -701,13 +718,13 @@ def create_main_interface():
                 )
             
             depth_generate_btn.click(
-                fn=flux_depth_wrapper,
+                fn=queue_flux_depth,
                 inputs=[
                     depth_input_image, depth_prompt, depth_steps, depth_guidance, depth_quantization,
                     depth_lora_components['state'],
                     depth_lora_components['strength_1'], depth_lora_components['strength_2'], depth_lora_components['strength_3']
                 ],
-                outputs=depth_output,
+                outputs=post_processing_queue_feedback,
                 show_progress=True
             )
             
@@ -748,13 +765,13 @@ def create_main_interface():
                 )
             
             canny_generate_btn.click(
-                fn=flux_canny_wrapper,
+                fn=queue_flux_canny,
                 inputs=[
                     canny_input_image, canny_prompt, canny_steps, canny_guidance, canny_quantization, canny_low_threshold, canny_high_threshold,
                     canny_lora_components['state'],
                     canny_lora_components['strength_1'], canny_lora_components['strength_2'], canny_lora_components['strength_3']
                 ],
-                outputs=canny_output,
+                outputs=post_processing_queue_feedback,
                 show_progress=True
             )
             
@@ -766,16 +783,23 @@ def create_main_interface():
                 )
             
             redux_generate_btn.click(
-                fn=flux_redux_wrapper,
+                fn=queue_flux_redux,
                 inputs=[
                     redux_input_image, redux_guidance, redux_steps, redux_variation_strength, redux_quantization
                 ],
-                outputs=redux_output,
+                outputs=post_processing_queue_feedback,
                 show_progress=True
             )
 
         # ==============================================================================
-        # TAB 3: PROMPT ENHANCER
+        # TAB 3: PROCESSING
+        # ==============================================================================
+        with gr.Tab("Processing"):
+            processing_components = create_processing_tab()
+            setup_processing_tab_events(processing_components, image_generator, modelbgrm)
+
+        # ==============================================================================
+        # TAB 4: PROMPT ENHANCER
         # ==============================================================================
         with gr.Tab("Prompt Enhancer"):
             gr.Markdown("## Prompt Enhancement using Ollama")
@@ -870,7 +894,7 @@ def create_main_interface():
                 gr.Markdown("⚠️ **Ollama not available**. Please install and start Ollama to use prompt enhancement features.")
 
         # ==============================================================================
-        # TAB 4: HISTORY
+        # TAB 5: HISTORY
         # ==============================================================================
         with gr.Tab("History"):
             gr.Markdown("## Image generation history")
@@ -928,7 +952,7 @@ def create_main_interface():
             )
 
         # ==============================================================================
-        # TAB 5: ADMIN
+        # TAB 6: ADMIN
         # ==============================================================================
         with gr.Tab("Admin"):
             gr.Markdown("## Administration and maintenance tools")
