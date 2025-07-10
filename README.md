@@ -1,6 +1,6 @@
 # FluxForge Studio: Advanced FLUX.1 Image Generation Interface
 
-A comprehensive web-based interface for FLUX.1 image generation with dynamic tool system, LoRA support, prompt enhancement, and background removal capabilities.
+A comprehensive web-based interface for FLUX.1 image generation with advanced queue system, dynamic tool system, LoRA support, prompt enhancement, and background removal capabilities.
 
 ## 🚀 Features
 
@@ -24,6 +24,14 @@ A comprehensive web-based interface for FLUX.1 image generation with dynamic too
 - **Ollama Integration**: Local LLM integration for prompt optimization
 - **Vision Model Support**: Analyze images to generate detailed prompts
 - **Streaming Responses**: Real-time prompt generation with progressive updates
+
+### 🔄 Advanced Processing Queue System
+- **Batch Processing**: Sequential task execution with intelligent resource management
+- **Memory Monitoring**: Real-time RAM and VRAM/MPS usage tracking during processing
+- **Task Management**: Interactive queue interface with individual task control
+- **Auto-Queuing**: All generation operations automatically added to processing queue
+- **Progress Tracking**: Live status updates with detailed memory statistics
+- **Error Recovery**: Graceful handling of memory issues and processing errors
 
 ### 📊 History & Management
 - **SQLite Database**: Persistent storage of all image operations
@@ -117,11 +125,20 @@ When using `--share`, the application will:
 - **Parameter Adjustment**: Modify settings for each tool independently
 
 ### Image Generation Process
-1. Enter your prompt
+1. Enter your prompt in the **Content Creation** tab
 2. Select model (schnell/dev) and configure basic parameters
 3. Add desired tools using the dynamic tool system
 4. Adjust tool-specific parameters
-5. Generate your image
+5. Click "Add to Queue" to queue your generation
+6. Monitor progress in the **Processing Queue** tab
+7. View completed images in the **History** tab
+
+### Processing Queue Management
+1. **Queue Tasks**: All generation operations are automatically queued
+2. **Start Processing**: Use the "🚀 Process Queue" button to begin batch processing
+3. **Monitor Progress**: Real-time updates showing current task and memory usage
+4. **Manage Tasks**: Select and remove individual tasks from the pending queue
+5. **View Statistics**: Live counters for pending, processing, completed, and error tasks
 
 ## 📁 Project Structure
 
@@ -133,7 +150,8 @@ mflux-gradio/
 ├── src/                       # Source code modules
 │   ├── core/                  # Core functionality
 │   │   ├── config.py          # Configuration and device setup
-│   │   └── database.py        # SQLite database operations
+│   │   ├── database.py        # SQLite database operations
+│   │   └── processing_queue.py # Advanced queue system with memory monitoring
 │   ├── generator/             # Image generation
 │   │   └── image_generator.py # FLUX.1 generation with diffusers
 │   ├── enhancement/           # AI enhancement tools
@@ -148,14 +166,16 @@ mflux-gradio/
 │   │   └── upscaler.py        # ControlNet upscaling
 │   ├── ui/                    # User interface components
 │   │   ├── components.py      # Gradio UI components
-│   │   └── lora_manager.py    # LoRA management interface
+│   │   ├── lora_manager.py    # LoRA management interface
+│   │   └── processing_tab.py  # Processing queue interface
 │   └── utils/                 # Utility functions
 │       ├── canny_processing.py   # Canny edge detection
 │       ├── hf_cache_manager.py   # HuggingFace cache management
 │       ├── image_processing.py   # Image utilities
 │       ├── mask_utils.py         # Masking utilities
 │       ├── model_cache.py        # Model caching system
-│       └── quantization.py       # Memory quantization
+│       ├── quantization.py       # Memory quantization
+│       └── queue_helpers.py      # Queue integration functions
 ├── docs/                      # Documentation
 │   ├── API.md                # API documentation
 │   ├── FEATURES.md           # Detailed features guide
@@ -257,12 +277,15 @@ The application automatically detects and uses:
 ## 🎯 Key Updates
 
 ### Recent Improvements
+- **Advanced Queue System**: Complete batch processing implementation with memory monitoring
+- **Sequential Task Processing**: Intelligent resource management preventing memory conflicts
+- **Real-time Progress Tracking**: Live updates with memory statistics and task status
 - **Diffusers Migration**: Full migration from mflux to diffusers library
 - **Dynamic Tool System**: Modular tool selection and management
 - **Fixed LoRA Mapping**: Corrected tool-to-parameter mapping issues
 - **Enhanced Logging**: Comprehensive parameter tracking
-- **Memory Optimization**: Better GPU/MPS memory management
-- **UI Improvements**: Cleaner interface with better contrast
+- **Memory Optimization**: Better GPU/MPS memory management with automatic cleanup
+- **UI Improvements**: Cleaner interface with better contrast and queue management
 - **ControlNet Upscaler**: Proper implementation with JasperAI model
 
 ## 📋 TODO
@@ -274,12 +297,16 @@ The application automatically detects and uses:
 - [ ] **Add interface to manage LoRA** - GUI for installing, organizing, and managing LoRA models
 - [ ] **Add custom model support** - Support for user-provided custom models and fine-tunes
 - [ ] **Add memory optimisation of diffusers** - Implement advanced memory management techniques
-- [ ] **Add batch image generation** - Queue system for generating multiple images with different prompts/parameters
+- [x] **Add batch image generation** - Complete queue system for generating multiple images with different prompts/parameters
 
 ### Priority
-- **High**: Quantization support and memory optimization
-- **Medium**: LoRA management interface, custom models, and batch generation
+- **High**: LoRA management interface and custom model support
+- **Medium**: Advanced memory optimization for diffusers
 - **Low**: Optional Ollama dependencies
+
+### Completed ✅
+- **Batch Processing System**: Complete queue implementation with memory monitoring
+- **8-bit Quantization**: Memory optimization with optimum.quanto
 
 Contributions welcome! Feel free to open issues for feature requests or bug reports.
 
