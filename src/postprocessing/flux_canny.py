@@ -23,6 +23,7 @@ import warnings
 from pathlib import Path
 from PIL import Image
 import numpy as np
+from utils.progress_tracker import global_progress_tracker
 
 def generate_canny_preview(input_image, low_threshold=100, high_threshold=200):
     """
@@ -128,14 +129,20 @@ def process_flux_canny(input_image, prompt, steps, guidance_scale, quantization,
         # Initialize FLUX Canny pipeline using LoRA (recommended approach)
         try:
             print("🔄 Loading FLUX.1-dev with Canny LoRA...")
+            
+            # Use FluxControlPipeline with Canny LoRA (as per official docs)
             flux_canny_pipeline = FluxControlPipeline.from_pretrained(
                 "black-forest-labs/FLUX.1-dev",
                 torch_dtype=dtype,
                 use_safetensors=True
             )
             
-            # Move to device first (important for LoRA loading)
+            # Move pipeline to device
             flux_canny_pipeline = flux_canny_pipeline.to(device)
+            
+            # For MPS compatibility, try to force VAE to CPU if convolution issues occur
+            if device == "mps":
+                print("⚠️  MPS detected: Will use CPU fallback for VAE if convolution errors occur")
             
             # Load Canny LoRA BEFORE quantization (important for compatibility)
             print("🔄 Loading Canny LoRA weights...")
@@ -150,14 +157,14 @@ def process_flux_canny(input_image, prompt, steps, guidance_scale, quantization,
                 
                 # Apply same quantization logic as main models
                 if quantization in ["8-bit", "Auto"]:
-                    print(f"🔧 Application quantification qint8 FLUX Canny (économie mémoire ~70%)")
+                    print(f"🔧 Application quantification qint8 FLUX Canny")
                     success, error = quantize_pipeline_components(flux_canny_pipeline, device, prefer_4bit=False, verbose=True)
                     if not success:
                         print(f"⚠️  Quantification qint8 échouée: {error}")
                         print("🔄 Continuons sans quantification...")
                 elif quantization == "4-bit":
                     print(f"⚠️  Quantification 4-bit non supportée sur {device} (tests montrent erreurs)")
-                    print("💡 Conseil: Utilisez '8-bit' pour économie mémoire substantielle")
+                    print("💡 Conseil: Utilisez '8-bit' pour économie mémoire")
                     print("🔄 Continuons sans quantification...")
                 else:
                     print(f"⚠️  Quantification {quantization} non supportée")
@@ -257,17 +264,48 @@ def process_flux_canny(input_image, prompt, steps, guidance_scale, quantization,
         
         print(f"🎲 Using seed: {seed}")
         
-        # Run FLUX Canny generation
-        print("🚀 Starting FLUX Canny generation with control image...")
-        result = flux_canny_pipeline(
-            prompt=prompt,
-            control_image=canny_image,
-            num_inference_steps=steps,
-            guidance_scale=guidance_scale,
-            height=input_image.height,
-            width=input_image.width,
-            generator=generator
-        )
+        # Apply progress tracking for FLUX Canny
+        print("🚀 Starting FLUX Canny generation with progress tracking...")
+        
+        # Reset and start progress tracking
+        global_progress_tracker.reset()
+        global_progress_tracker.apply_tqdm_patches()
+        
+        try:
+            # Run FLUX Canny generation using FluxControlPipeline
+            # Handle MPS convolution errors gracefully
+            try:
+                result = flux_canny_pipeline(
+                    prompt=prompt,
+                    control_image=canny_image,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance_scale,
+                    height=input_image.height,
+                    width=input_image.width,
+                    generator=generator
+                )
+            except NotImplementedError as e:
+                if "convolution_overrideable" in str(e) and device == "mps":
+                    print("⚠️  MPS convolution error detected, moving VAE to CPU...")
+                    # Move VAE to CPU to avoid convolution issues
+                    flux_canny_pipeline.vae = flux_canny_pipeline.vae.to("cpu")
+                    
+                    # Retry the generation
+                    result = flux_canny_pipeline(
+                        prompt=prompt,
+                        control_image=canny_image,
+                        num_inference_steps=steps,
+                        guidance_scale=guidance_scale,
+                        height=input_image.height,
+                        width=input_image.width,
+                        generator=generator
+                    )
+                else:
+                    raise e
+        finally:
+            # Always restore patches after generation
+            global_progress_tracker.remove_tqdm_patches()
+            print("✅ FLUX Canny generation completed with progress tracking")
         
         result_image = result.images[0]
         

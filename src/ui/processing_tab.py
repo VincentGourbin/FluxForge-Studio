@@ -22,6 +22,66 @@ from typing import List, Dict, Any, Tuple
 from pathlib import Path
 
 from core.processing_queue import processing_queue, TaskStatus
+from utils.progress_tracker import global_progress_tracker, format_progress_info
+
+def calculate_time_remaining(current_step: int, total_steps: int, elapsed_time: float) -> str:
+    """Calculate estimated time remaining based on current progress."""
+    if current_step <= 0 or total_steps <= 0 or elapsed_time <= 0:
+        return "Calculating..."
+    
+    # Calculate average time per step
+    avg_time_per_step = elapsed_time / current_step
+    
+    # Calculate remaining steps
+    remaining_steps = total_steps - current_step
+    
+    # Calculate estimated time remaining
+    estimated_remaining = avg_time_per_step * remaining_steps
+    
+    # Format the time
+    if estimated_remaining < 60:
+        return f"{estimated_remaining:.0f}s"
+    elif estimated_remaining < 3600:
+        minutes = int(estimated_remaining // 60)
+        seconds = int(estimated_remaining % 60)
+        return f"{minutes}m {seconds}s"
+    else:
+        hours = int(estimated_remaining // 3600)
+        minutes = int((estimated_remaining % 3600) // 60)
+        return f"{hours}h {minutes}m"
+
+def create_progress_bar(current: int, total: int, percentage: float, task_name: str = "Generation") -> str:
+    """Create a beautiful HTML progress bar."""
+    # Ensure percentage is between 0 and 100
+    percentage = max(0, min(100, percentage))
+    
+    # Color based on progress
+    if percentage < 30:
+        bar_color = "#FF9500"  # Orange
+    elif percentage < 70:
+        bar_color = "#007AFF"  # Blue
+    else:
+        bar_color = "#34C759"  # Green
+    
+    return f"""
+    <div style="margin: 15px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="font-weight: bold; color: #000 !important; font-size: 14px;">{task_name}</div>
+            <div style="color: #000 !important; font-size: 14px;">{current}/{total} ({percentage:.1f}%)</div>
+        </div>
+        <div style="width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="width: {percentage}%; height: 100%; background: linear-gradient(90deg, {bar_color} 0%, {bar_color}88 100%); border-radius: 10px; transition: width 0.3s ease; position: relative;">
+                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%); animation: shimmer 2s infinite;"></div>
+            </div>
+        </div>
+    </div>
+    <style>
+        @keyframes shimmer {{
+            0% {{ transform: translateX(-100%); }}
+            100% {{ transform: translateX(100%); }}
+        }}
+    </style>
+    """
 
 def create_processing_tab():
     """Create the Processing tab interface."""
@@ -49,19 +109,19 @@ def create_processing_tab():
                         <div style="display: flex; justify-content: space-around; text-align: center;">
                             <div style="flex: 1; padding: 10px;">
                                 <div style="font-size: 24px; font-weight: bold; color: #FF9500;">0</div>
-                                <div style="font-size: 14px; color: #666; margin-top: 5px;">⏳ Pending</div>
+                                <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⏳ Pending</div>
                             </div>
                             <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                                 <div style="font-size: 24px; font-weight: bold; color: #007AFF;">0</div>
-                                <div style="font-size: 14px; color: #666; margin-top: 5px;">⚙️ Processing</div>
+                                <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⚙️ Processing</div>
                             </div>
                             <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                                 <div style="font-size: 24px; font-weight: bold; color: #34C759;">0</div>
-                                <div style="font-size: 14px; color: #666; margin-top: 5px;">✅ Completed</div>
+                                <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">✅ Completed</div>
                             </div>
                             <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                                 <div style="font-size: 24px; font-weight: bold; color: #FF3B30;">0</div>
-                                <div style="font-size: 14px; color: #666; margin-top: 5px;">❌ Errors</div>
+                                <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">❌ Errors</div>
                             </div>
                         </div>
                     </div>
@@ -96,14 +156,25 @@ def create_processing_tab():
         # CURRENT PROCESSING SECTION
         # ==============================================================================
         with gr.Group():
-            gr.Markdown("### ⚙️ Current Processing Task")
             
-            current_task_display = gr.Markdown(
-                value="*No task currently processing*"
+            current_task_display = gr.HTML(
+                value="""
+                <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <div style="text-align: center; color: #000 !important; font-size: 16px; font-style: italic;">
+                        No task currently processing
+                    </div>
+                </div>
+                """
             )
             
-            memory_display = gr.Markdown(
-                value="*Memory statistics will appear here during processing*"
+            memory_display = gr.HTML(
+                value="""
+                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <div style="text-align: center; color: #000 !important; font-size: 14px; font-style: italic;">
+                        Memory statistics will appear here during processing
+                    </div>
+                </div>
+                """
             )
         
         # ==============================================================================
@@ -200,19 +271,19 @@ def update_queue_status() -> Tuple[str, str, List[List], bool]:
             <div style="display: flex; justify-content: space-around; text-align: center;">
                 <div style="flex: 1; padding: 10px;">
                     <div style="font-size: 24px; font-weight: bold; color: #FF9500;">{stats['pending']}</div>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">⏳ Pending</div>
+                    <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⏳ Pending</div>
                 </div>
                 <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                     <div style="font-size: 24px; font-weight: bold; color: #007AFF;">{stats['processing']}</div>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">⚙️ Processing</div>
+                    <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⚙️ Processing</div>
                 </div>
                 <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                     <div style="font-size: 24px; font-weight: bold; color: #34C759;">{stats['completed']}</div>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">✅ Completed</div>
+                    <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">✅ Completed</div>
                 </div>
                 <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                     <div style="font-size: 24px; font-weight: bold; color: #FF3B30;">{stats['errors']}</div>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">❌ Errors</div>
+                    <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">❌ Errors</div>
                 </div>
             </div>
         </div>
@@ -234,19 +305,19 @@ def update_queue_status() -> Tuple[str, str, List[List], bool]:
             <div style="display: flex; justify-content: space-around; text-align: center;">
                 <div style="flex: 1; padding: 10px;">
                     <div style="font-size: 24px; font-weight: bold; color: #FF9500;">0</div>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">⏳ Pending</div>
+                    <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⏳ Pending</div>
                 </div>
                 <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                     <div style="font-size: 24px; font-weight: bold; color: #007AFF;">0</div>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">⚙️ Processing</div>
+                    <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⚙️ Processing</div>
                 </div>
                 <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                     <div style="font-size: 24px; font-weight: bold; color: #34C759;">0</div>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">✅ Completed</div>
+                    <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">✅ Completed</div>
                 </div>
                 <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
                     <div style="font-size: 24px; font-weight: bold; color: #FF3B30;">0</div>
-                    <div style="font-size: 14px; color: #666; margin-top: 5px;">❌ Errors</div>
+                    <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">❌ Errors</div>
                 </div>
             </div>
         </div>
@@ -259,31 +330,141 @@ def update_queue_status() -> Tuple[str, str, List[List], bool]:
         )
 
 def update_current_task() -> Tuple[str, str]:
-    """Update current task display and memory display."""
+    """Update current task display and memory display with real-time progress."""
     try:
         current_task = processing_queue.get_processing_summary()
         
         if current_task:
-            description = f"**🎯 Currently Processing:**\\n{current_task['description']}"
+            # Get real-time progress information
+            progress_info = global_progress_tracker.get_current_progress()
+            
+            # Check if progress info is from current task (not stale from previous task)
+            if progress_info and progress_info.get('elapsed_time', 0) > 0:
+                # Extract progress data
+                current_step = progress_info.get('current_step', 0)
+                total_steps = progress_info.get('total_steps', 0)
+                percentage = progress_info.get('percentage', 0)
+                elapsed_time = progress_info.get('elapsed_time', 0)
+                task_type = progress_info.get('task_type', 'unknown')
+                
+                # Determine task name based on type
+                if task_type == 'generation':
+                    task_name = "🎨 Generation"
+                elif task_type == 'loading':
+                    task_name = "🔄 Loading"
+                else:
+                    task_name = "⚙️ Processing"
+                
+                # Calculate time remaining
+                time_remaining = calculate_time_remaining(current_step, total_steps, elapsed_time)
+                
+                # Create progress bar
+                progress_bar = create_progress_bar(current_step, total_steps, percentage, task_name)
+                
+                # Format complete display
+                description = f"""
+                <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <div style="font-size: 16px; font-weight: bold; color: #000 !important; margin-bottom: 10px;">
+                        🎯 Currently Processing
+                    </div>
+                    <div style="font-size: 14px; color: #000 !important; margin-bottom: 15px;">
+                        {current_task['description']}
+                    </div>
+                    {progress_bar}
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                        <div style="color: #000 !important; font-size: 13px;">
+                            ⏱️ <span style="color: #000 !important; font-weight: bold;">Elapsed:</span> {elapsed_time:.1f}s
+                        </div>
+                        <div style="color: #000 !important; font-size: 13px;">
+                            ⏰ <span style="color: #000 !important; font-weight: bold;">Remaining:</span> {time_remaining}
+                        </div>
+                        <div style="color: #000 !important; font-size: 13px;">
+                            📊 <span style="color: #000 !important; font-weight: bold;">Step:</span> {current_step}/{total_steps}
+                        </div>
+                    </div>
+                </div>
+                """
+            else:
+                # No progress yet or stale progress, show just the task description
+                description = f"""
+                <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <div style="font-size: 16px; font-weight: bold; color: #000 !important; margin-bottom: 10px;">
+                        🎯 Currently Processing
+                    </div>
+                    <div style="font-size: 14px; color: #000 !important; margin-bottom: 15px;">
+                        {current_task['description']}
+                    </div>
+                    <div style="text-align: center; padding: 20px; color: #000 !important; font-style: italic;">
+                        ⏳ Initializing...
+                    </div>
+                </div>
+                """
             
             # Format memory stats if available
             memory_stats = current_task.get('memory_stats', {})
-            memory_text = "*Memory monitoring in progress...*"
             
             if 'before' in memory_stats:
                 from core.processing_queue import MemoryMonitor
-                memory_text = f"**Memory Stats:**\\n{MemoryMonitor.format_memory_stats(memory_stats['before'])}"
+                memory_before = MemoryMonitor.format_memory_stats(memory_stats['before'])
                 
+                memory_during = ""
                 if 'during' in memory_stats:
-                    memory_text += f"\\n\\n**During Processing:**\\n{MemoryMonitor.format_memory_stats(memory_stats['during'])}"
+                    memory_during = f"""
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                        <div style="font-weight: bold; color: #000 !important; margin-bottom: 8px;">📊 During Processing:</div>
+                        <div style="color: #000 !important; font-size: 13px;">{MemoryMonitor.format_memory_stats(memory_stats['during'])}</div>
+                    </div>
+                    """
+                
+                memory_text = f"""
+                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; color: #000 !important; margin-bottom: 8px;">💾 Memory Statistics:</div>
+                    <div style="color: #000 !important; font-size: 13px;">{memory_before}</div>
+                    {memory_during}
+                </div>
+                """
+            else:
+                memory_text = """
+                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <div style="text-align: center; color: #000 !important; font-size: 14px;">
+                        <span style="color: #000 !important; font-style: italic;">Memory monitoring in progress...</span>
+                    </div>
+                </div>
+                """
         else:
-            description = "*No task currently processing*"
-            memory_text = "*Memory statistics will appear here during processing*"
+            description = """
+            <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div style="text-align: center; color: #000 !important; font-size: 16px; font-style: italic;">
+                    No task currently processing
+                </div>
+            </div>
+            """
+            memory_text = """
+            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="text-align: center; color: #000 !important; font-size: 14px; font-style: italic;">
+                    Memory statistics will appear here during processing
+                </div>
+            </div>
+            """
         
         return description, memory_text
         
     except Exception as e:
-        return f"*Error getting task progress: {e}*", "*Error getting memory stats*"
+        error_description = f"""
+        <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="text-align: center; color: #FF3B30; font-size: 16px;">
+                <em>Error getting task progress: {e}</em>
+            </div>
+        </div>
+        """
+        error_memory = """
+        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="text-align: center; color: #FF3B30; font-size: 14px;">
+                <em>Error getting memory stats</em>
+            </div>
+        </div>
+        """
+        return error_description, error_memory
 
 def process_queue_async(image_generator, modelbgrm) -> str:
     """Start queue processing in a separate thread."""
@@ -537,4 +718,3 @@ def setup_processing_tab_events(components: Dict[str, Any], image_generator, mod
     )
     
     
-    print("✅ Processing tab events configured")

@@ -137,8 +137,9 @@ When using `--share`, the application will:
 1. **Queue Tasks**: All generation operations are automatically queued
 2. **Start Processing**: Use the "🚀 Process Queue" button to begin batch processing
 3. **Monitor Progress**: Real-time updates showing current task and memory usage
-4. **Manage Tasks**: Select and remove individual tasks from the pending queue
-5. **View Statistics**: Live counters for pending, processing, completed, and error tasks
+4. **Step Display**: Live progress tracking with detailed step counts, elapsed time, and remaining time estimates
+5. **Manage Tasks**: Select and remove individual tasks from the pending queue
+6. **View Statistics**: Live counters for pending, processing, completed, and error tasks
 
 ## 📁 Project Structure
 

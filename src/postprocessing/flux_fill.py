@@ -25,6 +25,7 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 import gradio as gr
+from utils.progress_tracker import global_progress_tracker
 
 def create_outpainting_mask(image, top_percent, bottom_percent, left_percent, right_percent):
     """
@@ -350,14 +351,14 @@ def process_flux_fill(fill_mode, image_editor_data, outpaint_image, prompt, step
             
             # Apply same quantization logic as main models
             if quantization in ["8-bit", "Auto"]:
-                print(f"🔧 Application quantification qint8 FLUX Fill (économie mémoire ~70%) APRÈS LoRA")
+                print(f"🔧 Application quantification qint8 FLUX Fill APRÈS LoRA")
                 success, error = quantize_pipeline_components(flux_fill_pipeline, device, prefer_4bit=False, verbose=True)
                 if not success:
                     print(f"⚠️  Quantification qint8 échouée: {error}")
                     print("🔄 Continuons sans quantification...")
             elif quantization == "4-bit":
                 print(f"⚠️  Quantification 4-bit non supportée sur {device} (tests montrent erreurs)")
-                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire substantielle")
+                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire")
                 print("🔄 Continuons sans quantification...")
             else:
                 print(f"⚠️  Quantification {quantization} non supportée")
@@ -371,18 +372,30 @@ def process_flux_fill(fill_mode, image_editor_data, outpaint_image, prompt, step
         
         print(f"🎲 Using seed: {seed}")
         
-        # Run FLUX Fill generation
-        result = flux_fill_pipeline(
-            prompt=prompt,
-            image=input_image,
-            mask_image=fill_mask,
-            height=input_image.height,
-            width=input_image.width,
-            guidance_scale=guidance_scale,
-            num_inference_steps=steps,
-            max_sequence_length=512,
-            generator=generator
-        )
+        # Apply progress tracking for FLUX Fill
+        print(f"🎨 Starting FLUX Fill generation with progress tracking...")
+        
+        # Reset and start progress tracking
+        global_progress_tracker.reset()
+        global_progress_tracker.apply_tqdm_patches()
+        
+        try:
+            # Run FLUX Fill generation
+            result = flux_fill_pipeline(
+                prompt=prompt,
+                image=input_image,
+                mask_image=fill_mask,
+                height=input_image.height,
+                width=input_image.width,
+                guidance_scale=guidance_scale,
+                num_inference_steps=steps,
+                max_sequence_length=512,
+                generator=generator
+            )
+        finally:
+            # Always restore patches after generation
+            global_progress_tracker.remove_tqdm_patches()
+            print(f"✅ FLUX Fill generation completed with progress tracking")
         
         result_image = result.images[0]
         
@@ -469,7 +482,7 @@ def update_flux_fill_controls_visibility(processing_type):
             gr.update(visible=False)   # upscaling_group
         )
     
-    is_flux_fill = "FLUX Fill" in processing_type
+    is_flux_fill = "FLUX Fill" in processing_type and processing_type != "None"
     is_kontext = "Kontext" in processing_type
     is_flux_depth = "FLUX Depth" in processing_type
     is_flux_canny = "FLUX Canny" in processing_type

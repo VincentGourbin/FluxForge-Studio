@@ -37,6 +37,7 @@ except ImportError:
     FluxKontextPipeline = None
 from diffusers.utils import load_image
 import gradio as gr
+from utils.progress_tracker import global_progress_tracker
 
 class ImageGenerator:
     """Core image generation class for FLUX.1 models with LoRA and ControlNet support.
@@ -361,17 +362,15 @@ class ImageGenerator:
             from utils.quantization import quantize_pipeline_components
             
             # Tests confirment: seul qint8 fonctionne de manière stable
-            # Schnell: testé 73.5% économie mémoire, Dev: même technologie
             if quantization in ["8-bit", "Auto"]:
-                model_info = "testé: 73.5% économie mémoire" if model_alias == "schnell" else "même technologie que Schnell"
-                print(f"🔧 Application quantification qint8 FLUX {model_alias} ({model_info}) APRÈS LoRA")
+                print(f"🔧 Application quantification qint8 FLUX {model_alias} APRÈS LoRA")
                 success, error = quantize_pipeline_components(flux_pipeline, self.device, prefer_4bit=False, verbose=True)
                 if not success:
                     print(f"⚠️  Quantification qint8 échouée: {error}")
                     print("🔄 Continuons sans quantification...")
             elif quantization == "4-bit":
                 print(f"⚠️  Quantification 4-bit non supportée sur {self.device} (tests montrent erreurs)")
-                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire substantielle")
+                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire")
                 print("🔄 Continuons sans quantification...")
             else:
                 print(f"⚠️  Quantification {quantization} non supportée")
@@ -441,15 +440,38 @@ class ImageGenerator:
                 generator=generator
             ).images[0]
         else:
-            # Standard text-to-image generation
-            image = flux_pipeline(
-                prompt=prompt,
-                num_inference_steps=steps,
-                guidance_scale=guidance,
-                height=height,
-                width=width,
-                generator=generator
-            ).images[0]
+            # Standard text-to-image generation with progress tracking
+            print(f"🎨 Starting {model_alias} generation with progress tracking...")
+            
+            # Apply progress tracking for dev and schnell models
+            if model_alias in ["dev", "schnell"]:
+                # Reset and start progress tracking
+                global_progress_tracker.reset()
+                global_progress_tracker.apply_tqdm_patches()
+                
+                try:
+                    image = flux_pipeline(
+                        prompt=prompt,
+                        num_inference_steps=steps,
+                        guidance_scale=guidance,
+                        height=height,
+                        width=width,
+                        generator=generator
+                    ).images[0]
+                finally:
+                    # Always restore patches after generation
+                    global_progress_tracker.remove_tqdm_patches()
+                    print(f"✅ {model_alias} generation completed with progress tracking")
+            else:
+                # Standard generation without progress tracking for other models
+                image = flux_pipeline(
+                    prompt=prompt,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance,
+                    height=height,
+                    width=width,
+                    generator=generator
+                ).images[0]
 
         # Save the generated image to disk
         image.save(str(output_filename))

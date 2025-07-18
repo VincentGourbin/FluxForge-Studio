@@ -21,6 +21,7 @@ import torch
 import gc
 import warnings
 from pathlib import Path
+from utils.progress_tracker import global_progress_tracker
 
 def process_kontext(input_image, prompt, steps, guidance_scale, quantization, kontext_selected_lora_state, 
                    kontext_lora_strength_1, kontext_lora_strength_2, kontext_lora_strength_3, image_generator):
@@ -157,14 +158,14 @@ def process_kontext(input_image, prompt, steps, guidance_scale, quantization, ko
             
             # Apply same quantization logic as main models
             if quantization in ["8-bit", "Auto"]:
-                print(f"🔧 Application quantification qint8 FLUX Kontext (économie mémoire ~70%) APRÈS LoRA")
+                print(f"🔧 Application quantification qint8 FLUX Kontext APRÈS LoRA")
                 success, error = quantize_pipeline_components(kontext_pipeline, device, prefer_4bit=False, verbose=True)
                 if not success:
                     print(f"⚠️  Quantification qint8 échouée: {error}")
                     print("🔄 Continuons sans quantification...")
             elif quantization == "4-bit":
                 print(f"⚠️  Quantification 4-bit non supportée sur {device} (tests montrent erreurs)")
-                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire substantielle")
+                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire")
                 print("🔄 Continuons sans quantification...")
             else:
                 print(f"⚠️  Quantification {quantization} non supportée")
@@ -186,16 +187,28 @@ def process_kontext(input_image, prompt, steps, guidance_scale, quantization, ko
         if input_image.mode != 'RGB':
             input_image = input_image.convert('RGB')
         
-        # Run Kontext generation
-        result = kontext_pipeline(
-            image=input_image,
-            prompt=prompt,
-            height=input_image.height,
-            width=input_image.width,
-            guidance_scale=guidance_scale,
-            num_inference_steps=steps,
-            generator=generator
-        )
+        # Apply progress tracking for Kontext
+        print("🎨 Starting Kontext generation with progress tracking...")
+        
+        # Reset and start progress tracking
+        global_progress_tracker.reset()
+        global_progress_tracker.apply_tqdm_patches()
+        
+        try:
+            # Run Kontext generation
+            result = kontext_pipeline(
+                image=input_image,
+                prompt=prompt,
+                height=input_image.height,
+                width=input_image.width,
+                guidance_scale=guidance_scale,
+                num_inference_steps=steps,
+                generator=generator
+            )
+        finally:
+            # Always restore patches after generation
+            global_progress_tracker.remove_tqdm_patches()
+            print("✅ Kontext generation completed with progress tracking")
         
         result_image = result.images[0]
         

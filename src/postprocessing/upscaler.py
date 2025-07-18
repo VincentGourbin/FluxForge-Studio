@@ -21,6 +21,7 @@ import gc
 import warnings
 from pathlib import Path
 from PIL import Image
+from utils.progress_tracker import global_progress_tracker
 
 def upscale_image(input_image, upscale_factor, quantization="None"):
     """
@@ -130,23 +131,32 @@ def upscale_image(input_image, upscale_factor, quantization="None"):
         generator = torch.Generator(device=device).manual_seed(seed)
         
         print(f"🎲 Using seed: {seed}")
-        print("🎨 Generating upscaled image...")
+        print("🎨 Generating upscaled image with progress tracking...")
         
-        # Generate upscaled image using ControlNet
-        # Using recommended parameters for upscaler
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            
-            upscaled_image = upscaler_pipeline(
-                prompt="",  # Empty prompt as recommended for upscaler
-                control_image=input_image,
-                controlnet_conditioning_scale=0.6,  # Recommended strength
-                num_inference_steps=28,  # Recommended steps
-                guidance_scale=3.5,  # Recommended guidance
-                height=target_height,
-                width=target_width,
-                generator=generator
-            ).images[0]
+        # Apply progress tracking for Upscaler
+        global_progress_tracker.reset()
+        global_progress_tracker.apply_tqdm_patches()
+        
+        try:
+            # Generate upscaled image using ControlNet
+            # Using recommended parameters for upscaler
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                
+                upscaled_image = upscaler_pipeline(
+                    prompt="",  # Empty prompt as recommended for upscaler
+                    control_image=input_image,
+                    controlnet_conditioning_scale=0.6,  # Recommended strength
+                    num_inference_steps=28,  # Recommended steps
+                    guidance_scale=3.5,  # Recommended guidance
+                    height=target_height,
+                    width=target_width,
+                    generator=generator
+                ).images[0]
+        finally:
+            # Always restore patches after generation
+            global_progress_tracker.remove_tqdm_patches()
+            print("✅ Upscaler generation completed with progress tracking")
         
         print("✅ Upscaling completed!")
         

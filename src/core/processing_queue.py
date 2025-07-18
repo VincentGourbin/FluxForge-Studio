@@ -26,6 +26,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Callable
 from pathlib import Path
 from enum import Enum
+from utils.progress_tracker import global_progress_tracker
 
 class TaskType(Enum):
     """Enumeration of supported task types."""
@@ -186,10 +187,15 @@ class ProcessingQueue:
             return [task.to_dict() for task in self.completed_tasks]
     
     def get_processing_summary(self) -> Optional[Dict[str, Any]]:
-        """Get summary of currently processing task."""
+        """Get summary of currently processing task with real-time progress."""
         with self._lock:
             if self.current_task:
-                return self.current_task.to_dict()
+                task_dict = self.current_task.to_dict()
+                # Add real-time progress information
+                progress_info = global_progress_tracker.get_current_progress()
+                if progress_info:
+                    task_dict['progress'] = progress_info
+                return task_dict
             return None
     
     def remove_task(self, task_id: str) -> bool:
@@ -310,6 +316,10 @@ class ProcessingQueue:
         """Process a single task with memory monitoring."""
         try:
             print(f"🎯 Processing: {task.description}")
+            
+            # Clear progress tracker from previous task to avoid displaying old progress
+            from utils.progress_tracker import global_progress_tracker
+            global_progress_tracker.reset()
             
             # Memory stats before processing
             memory_before = self.memory_monitor.get_memory_stats()

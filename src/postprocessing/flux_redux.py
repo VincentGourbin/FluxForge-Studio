@@ -23,6 +23,7 @@ import warnings
 from pathlib import Path
 from PIL import Image
 import numpy as np
+from utils.progress_tracker import global_progress_tracker
 
 def process_flux_redux(input_image, guidance_scale, steps, variation_strength, quantization, image_generator):
     """
@@ -89,7 +90,7 @@ def process_flux_redux(input_image, guidance_scale, steps, variation_strength, q
                 from utils.quantization import quantize_pipeline_components
                 
                 if quantization in ["8-bit", "Auto"]:
-                    print(f"🔧 Application quantification qint8 FLUX Prior Redux (économie mémoire ~70%)")
+                    print(f"🔧 Application quantification qint8 FLUX Prior Redux")
                     success, error = quantize_pipeline_components(pipe_prior_redux, device, prefer_4bit=False, verbose=True)
                     if not success:
                         print(f"⚠️  Quantification Prior Redux qint8 échouée: {error}")
@@ -117,7 +118,7 @@ def process_flux_redux(input_image, guidance_scale, steps, variation_strength, q
                 from utils.quantization import quantize_pipeline_components
                 
                 if quantization in ["8-bit", "Auto"]:
-                    print(f"🔧 Application quantification qint8 FLUX Base (économie mémoire ~70%)")
+                    print(f"🔧 Application quantification qint8 FLUX Base")
                     success, error = quantize_pipeline_components(pipe, device, prefer_4bit=False, verbose=True)
                     if not success:
                         print(f"⚠️  Quantification Base FLUX qint8 échouée: {error}")
@@ -149,17 +150,26 @@ def process_flux_redux(input_image, guidance_scale, steps, variation_strength, q
         print("✅ Redux Prior processing completed")
         
         # Step 2: Generate variation through FLUX pipeline
-        print("🔄 Step 2: Generating variation...")
+        print("🔄 Step 2: Generating variation with progress tracking...")
         
         # Adjust guidance scale based on variation strength
         adjusted_guidance = guidance_scale * variation_strength
         
-        result = pipe(
-            guidance_scale=adjusted_guidance,
-            num_inference_steps=steps,
-            generator=generator,
-            **pipe_prior_output,
-        )
+        # Apply progress tracking for FLUX Redux
+        global_progress_tracker.reset()
+        global_progress_tracker.apply_tqdm_patches()
+        
+        try:
+            result = pipe(
+                guidance_scale=adjusted_guidance,
+                num_inference_steps=steps,
+                generator=generator,
+                **pipe_prior_output,
+            )
+        finally:
+            # Always restore patches after generation
+            global_progress_tracker.remove_tqdm_patches()
+            print("✅ FLUX Redux generation completed with progress tracking")
         
         result_image = result.images[0]
         

@@ -24,6 +24,7 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
+from utils.progress_tracker import global_progress_tracker
 
 def generate_depth_map(input_image):
     """
@@ -48,12 +49,12 @@ def generate_depth_map(input_image):
         # Determine device and dtype carefully for depth model compatibility
         if torch.cuda.is_available():
             device = "cuda"
-            # Use float32 for better stability with depth models
-            dtype = torch.float32
+            # Use bfloat16 for better performance
+            dtype = torch.bfloat16
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             device = "mps"
-            # Use float32 for MPS to avoid type mismatch issues
-            dtype = torch.float32
+            # Use bfloat16 for MPS for better performance
+            dtype = torch.bfloat16
         else:
             device = "cpu"
             dtype = torch.float32
@@ -64,10 +65,21 @@ def generate_depth_map(input_image):
         try:
             print("🔄 Loading Depth Anything model...")
             image_processor = AutoImageProcessor.from_pretrained("LiheYoung/depth-anything-large-hf")
-            model = AutoModelForDepthEstimation.from_pretrained(
-                "LiheYoung/depth-anything-large-hf",
-                torch_dtype=dtype
-            )
+            
+            # Try to load with bfloat16 first for better performance
+            try:
+                model = AutoModelForDepthEstimation.from_pretrained(
+                    "LiheYoung/depth-anything-large-hf",
+                    torch_dtype=dtype
+                )
+                print(f"✅ Depth model loaded with {dtype}")
+            except Exception as dtype_error:
+                print(f"⚠️  Failed to load with {dtype}, falling back to float32")
+                model = AutoModelForDepthEstimation.from_pretrained(
+                    "LiheYoung/depth-anything-large-hf",
+                    torch_dtype=torch.float32
+                )
+                dtype = torch.float32
             
             # Move model to device
             model = model.to(device)
@@ -215,6 +227,11 @@ def process_flux_depth(input_image, prompt, steps, guidance_scale, quantization,
         # Move pipeline to appropriate device
         print(f"🔄 Moving pipeline to {device}...")
         flux_depth_pipeline = flux_depth_pipeline.to(device)
+        
+        # For MPS compatibility, prepare for potential convolution issues
+        if device == "mps":
+            print("⚠️  MPS detected: Will use CPU fallback for VAE if convolution errors occur")
+            
         print(f"✅ Pipeline moved to {device} successfully!")
         
         # Apply quantization if requested
@@ -223,14 +240,14 @@ def process_flux_depth(input_image, prompt, steps, guidance_scale, quantization,
             
             # Apply same quantization logic as main models
             if quantization in ["8-bit", "Auto"]:
-                print(f"🔧 Application quantification qint8 FLUX Depth (économie mémoire ~70%)")
+                print(f"🔧 Application quantification qint8 FLUX Depth")
                 success, error = quantize_pipeline_components(flux_depth_pipeline, device, prefer_4bit=False, verbose=True)
                 if not success:
                     print(f"⚠️  Quantification qint8 échouée: {error}")
                     print("🔄 Continuons sans quantification...")
             elif quantization == "4-bit":
                 print(f"⚠️  Quantification 4-bit non supportée sur {device} (tests montrent erreurs)")
-                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire substantielle")
+                print("💡 Conseil: Utilisez '8-bit' pour économie mémoire")
                 print("🔄 Continuons sans quantification...")
             else:
                 print(f"⚠️  Quantification {quantization} non supportée")
@@ -314,16 +331,48 @@ def process_flux_depth(input_image, prompt, steps, guidance_scale, quantization,
         
         print(f"🎲 Using seed: {seed}")
         
-        # Run FLUX Depth generation
-        result = flux_depth_pipeline(
-            prompt=prompt,
-            control_image=depth_map,
-            num_inference_steps=steps,
-            guidance_scale=guidance_scale,
-            height=input_image.height,
-            width=input_image.width,
-            generator=generator
-        )
+        # Apply progress tracking for FLUX Depth
+        print(f"🎨 Starting FLUX Depth generation with progress tracking...")
+        
+        # Reset and start progress tracking
+        global_progress_tracker.reset()
+        global_progress_tracker.apply_tqdm_patches()
+        
+        try:
+            # Run FLUX Depth generation
+            # Handle MPS convolution errors gracefully
+            try:
+                result = flux_depth_pipeline(
+                    prompt=prompt,
+                    control_image=depth_map,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance_scale,
+                    height=input_image.height,
+                    width=input_image.width,
+                    generator=generator
+                )
+            except NotImplementedError as e:
+                if "convolution_overrideable" in str(e) and device == "mps":
+                    print("⚠️  MPS convolution error detected, moving VAE to CPU...")
+                    # Move VAE to CPU to avoid convolution issues
+                    flux_depth_pipeline.vae = flux_depth_pipeline.vae.to("cpu")
+                    
+                    # Retry the generation
+                    result = flux_depth_pipeline(
+                        prompt=prompt,
+                        control_image=depth_map,
+                        num_inference_steps=steps,
+                        guidance_scale=guidance_scale,
+                        height=input_image.height,
+                        width=input_image.width,
+                        generator=generator
+                    )
+                else:
+                    raise e
+        finally:
+            # Always restore patches after generation
+            global_progress_tracker.remove_tqdm_patches()
+            print(f"✅ FLUX Depth generation completed with progress tracking")
         
         result_image = result.images[0]
         

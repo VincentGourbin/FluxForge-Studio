@@ -294,8 +294,7 @@ def create_main_interface():
             # Processing type selector
             processing_type = create_post_processing_selector([
                 "None", 
-                "FLUX Fill - Inpainting (fill masked areas)", 
-                "FLUX Fill - Outpainting (extend image borders)", 
+                "FLUX Fill (inpainting and outpainting)", 
                 "Kontext (edit with text descriptions)", 
                 "FLUX Depth (control with depth maps)", 
                 "FLUX Canny (control with edge detection)", 

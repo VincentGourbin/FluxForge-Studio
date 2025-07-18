@@ -42,7 +42,7 @@ def get_compatible_quantization_type(device: str, prefer_4bit: bool = False):
         
         # Tests confirment: seul qint8 stable sur tous devices
         # qint4 et qint2 causent erreurs, qfloat8 non supporté sur MPS
-        return qint8, "qint8 (testé stable - 73.5% économie mémoire)"
+        return qint8, "qint8 (testé stable)"
             
     except ImportError as e:
         return None, f"Erreur import quantization: {e}"
@@ -111,7 +111,7 @@ def quantize_pipeline_components(pipeline, device: str, prefer_4bit: bool = Fals
         
         # Utiliser uniquement qint8 (testé stable)
         quant_type = qint8
-        description = "qint8 (testé: 73.5% économie mémoire, +27% temps génération)"
+        description = "qint8"
         
         if verbose:
             print(f"📉 Quantification {description}...")
@@ -170,8 +170,8 @@ def get_quantization_memory_savings(device: str) -> str:
     if quant_type is None:
         return "Non disponible"
     
-    # Basé sur tests réels: 73.5% économie sur MPS avec qint8
-    return "73.5% (qint8 testé)"
+    # Économie mémoire avec qint8
+    return "~70% (qint8)"
 
 def validate_quantization_support(device: str, verbose: bool = True) -> bool:
     """Valide que la quantification qint8 est supportée sur le device
@@ -198,7 +198,7 @@ def validate_quantization_support(device: str, verbose: bool = True) -> bool:
     if verbose:
         print(f"✅ Quantification qint8 supportée sur {device}")
         print(f"💾 Économies mémoire testées: {get_quantization_memory_savings(device)}")
-        print(f"⏱️  Impact performance: +27% temps génération")
+        print(f"⏱️  Impact performance: légèrement plus lent")
         print(f"🎯 Disponible uniquement pour FLUX Schnell")
     
     return True
