@@ -40,6 +40,10 @@ __pycache__
 /lora
 /outputimage
 generated_images.db
+
+# LoRA info files (migrated to database)
+lora_info.json
+lora_info.json.backup_*
 /stepwise_output
 /_example
 /train

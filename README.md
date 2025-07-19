@@ -34,9 +34,10 @@ A comprehensive web-based interface for FLUX.1 image generation with advanced qu
 - **Error Recovery**: Graceful handling of memory issues and processing errors
 
 ### 📊 History & Management
-- **SQLite Database**: Persistent storage of all image operations
+- **SQLite Database**: Persistent storage of all image operations and LoRA models
 - **Complete Metadata**: Tracks generation parameters, tools used, and settings
 - **Gallery View**: Visual browsing of generated images with detailed information
+- **LoRA Management**: Dedicated interface for uploading, editing, and managing LoRA models
 - **HuggingFace Cache Management**: Integrated cache viewer and cleanup with selective deletion
 - **Comprehensive Logging**: Detailed console output for debugging and monitoring
 
@@ -141,6 +142,20 @@ When using `--share`, the application will:
 5. **Manage Tasks**: Select and remove individual tasks from the pending queue
 6. **View Statistics**: Live counters for pending, processing, completed, and error tasks
 
+### LoRA Management
+1. **Access Interface**: Open the "LoRA Management" tab
+2. **Upload LoRA**: 
+   - Click "Upload .safetensors file" to select your LoRA model
+   - Add description and activation keywords
+   - Click "Add LoRA" to save to database and copy to lora directory
+3. **Edit LoRA**: Modify descriptions and keywords directly in the dataframe
+4. **Delete LoRA**: 
+   - Select LoRA(s) using checkboxes
+   - Click "Delete Selected" to see confirmation interface
+   - Choose whether to delete files from disk
+   - Confirm deletion
+5. **Real-time Sync**: Changes immediately appear in all generation interfaces
+
 ## 📁 Project Structure
 
 ```
@@ -167,7 +182,8 @@ mflux-gradio/
 │   │   └── upscaler.py        # ControlNet upscaling
 │   ├── ui/                    # User interface components
 │   │   ├── components.py      # Gradio UI components
-│   │   ├── lora_manager.py    # LoRA management interface
+│   │   ├── lora_manager.py    # LoRA selection interface
+│   │   ├── lora_management.py # LoRA management interface
 │   │   └── processing_tab.py  # Processing queue interface
 │   └── utils/                 # Utility functions
 │       ├── canny_processing.py   # Canny edge detection
@@ -190,14 +206,14 @@ mflux-gradio/
 ## ⚙️ Configuration
 
 ### LoRA Configuration
-Edit `lora_info.json` to add new LoRA models:
-```json
-{
-    "file_name": "your_lora.safetensors",
-    "description": "Description of your LoRA",
-    "activation_keyword": "trigger_word"
-}
-```
+LoRA models are now managed through the dedicated **LoRA Management** tab in the web interface:
+
+1. **Upload New LoRA**: Upload .safetensors files with descriptions and activation keywords
+2. **Edit Existing LoRA**: Modify descriptions and keywords directly in the interface
+3. **Delete LoRA**: Remove LoRA models from database and optionally from disk
+4. **Automatic Sync**: Changes immediately reflected in all generation interfaces
+
+**Legacy Configuration**: The old `lora_info.json` file is automatically migrated to the database on first run.
 
 ### Device Configuration
 The application automatically detects and uses:
@@ -288,6 +304,7 @@ The application automatically detects and uses:
 - **Memory Optimization**: Better GPU/MPS memory management with automatic cleanup
 - **UI Improvements**: Cleaner interface with better contrast and queue management
 - **ControlNet Upscaler**: Proper implementation with JasperAI model
+- **LoRA Management System**: Complete interface for LoRA upload, editing, and database management
 
 ## 📋 TODO
 
@@ -295,19 +312,20 @@ The application automatically detects and uses:
 
 - [x] **Support quantisation** - Add 4-bit/8-bit model quantization for memory efficiency (8-bit implemented, to be tested on CUDA)
 - [ ] **Remove Ollama dependencies** - Make prompt enhancement optional with fallback options
-- [ ] **Add interface to manage LoRA** - GUI for installing, organizing, and managing LoRA models
+- [x] **Add interface to manage LoRA** - GUI for installing, organizing, and managing LoRA models (Complete LoRA Management tab implemented)
 - [ ] **Add custom model support** - Support for user-provided custom models and fine-tunes
 - [ ] **Add memory optimisation of diffusers** - Implement advanced memory management techniques
 - [x] **Add batch image generation** - Complete queue system for generating multiple images with different prompts/parameters
 
 ### Priority
-- **High**: LoRA management interface and custom model support
+- **High**: Custom model support
 - **Medium**: Advanced memory optimization for diffusers
 - **Low**: Optional Ollama dependencies
 
 ### Completed ✅
 - **Batch Processing System**: Complete queue implementation with memory monitoring
 - **8-bit Quantization**: Memory optimization with optimum.quanto
+- **LoRA Management System**: Complete GUI interface for LoRA upload, editing, deletion, and database management
 
 Contributions welcome! Feel free to open issues for feature requests or bug reports.
 

@@ -96,6 +96,19 @@ def show_lora_modal():
     """Show the LoRA selection modal."""
     return gr.update(visible=True)
 
+def refresh_lora_dropdown_choices(lora_data):
+    """
+    Refresh the choices in the LoRA dropdown.
+    
+    Args:
+        lora_data (list): Updated LoRA data
+        
+    Returns:
+        gr.update: Updated dropdown choices
+    """
+    choices = [f"{lora['file_name']} - {lora['description']}" for lora in lora_data] if lora_data else []
+    return gr.update(choices=choices)
+
 def hide_lora_modal():
     """Hide the LoRA selection modal."""
     return gr.update(visible=False)

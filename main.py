@@ -951,57 +951,87 @@ def create_main_interface():
             )
 
         # ==============================================================================
-        # TAB 6: ADMIN
+        # TAB 6: LORA MANAGEMENT
+        # ==============================================================================
+        from ui.lora_management import create_lora_management_tab, setup_lora_management_events
+        
+        lora_management_components = create_lora_management_tab()
+        
+        # ==============================================================================
+        # TAB 7: ADMIN
         # ==============================================================================
         with gr.Tab("Admin"):
             gr.Markdown("## Administration and maintenance tools")
             
-            with gr.Column():
-                gr.Markdown("### 🔄 Gallery Synchronization")
-                gr.Markdown("Synchronize the gallery with disk files. This will:")
-                gr.Markdown("- Move orphaned images (on disk but not in database) to `orphaned_pictures/` folder")
-                gr.Markdown("- Remove database entries pointing to non-existent files")
-                gr.Markdown("- Handle associated JSON metadata files")
-                
-                sync_btn = gr.Button("🔄 Sync Gallery with Disk", variant="primary", size="lg")
-                sync_status = gr.Textbox(
-                    label="Sync Status",
-                    lines=10,
-                    interactive=False,
-                    placeholder="Click 'Sync Gallery with Disk' to see results..."
-                )
-                
+            # ==============================================================================
+            # SYSTEM INFORMATION SECTION
+            # ==============================================================================
+            with gr.Group():
                 gr.Markdown("### 📊 System Information")
-                gr.Markdown(f"- Device: {image_generator.device}")
-                gr.Markdown(f"- Available LoRA models: {len(image_generator.lora_data)}")
-                gr.Markdown(f"- Model options: {', '.join(image_generator.model_options)}")
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown(f"**Device:** {image_generator.device}")
+                        gr.Markdown(f"**Available LoRA models:** {len(image_generator.lora_data)}")
+                        gr.Markdown(f"**Model options:** {', '.join(image_generator.model_options)}")
+                    with gr.Column(scale=1):
+                        gr.Markdown("") # Empty column for spacing
+            
+            # ==============================================================================
+            # GALLERY SYNCHRONIZATION SECTION
+            # ==============================================================================
+            with gr.Group():
+                gr.Markdown("### 🔄 Gallery Synchronization")
+                gr.Markdown("Synchronize the gallery with disk files. This will move orphaned images to `orphaned_pictures/` folder and remove database entries pointing to non-existent files.")
                 
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        sync_btn = gr.Button("🔄 Sync Gallery with Disk", variant="primary", size="lg")
+                    with gr.Column(scale=2):
+                        sync_status = gr.Textbox(
+                            label="Sync Status",
+                            lines=8,
+                            interactive=False,
+                            placeholder="Click 'Sync Gallery with Disk' to see results..."
+                        )
+            
+            # ==============================================================================
+            # MODEL CACHE MANAGEMENT SECTION
+            # ==============================================================================
+            with gr.Group():
                 gr.Markdown("### 🗂️ Model Cache Management")
                 gr.Markdown("Manage downloaded models to save disk space and bandwidth.")
                 
-                cache_info_btn = gr.Button("📊 Show Cache Status", variant="secondary", size="lg")
-                cache_info_display = gr.Textbox(
-                    label="Cache Information",
-                    lines=15,
-                    interactive=False,
-                    placeholder="Click 'Show Cache Status' to see model cache information..."
-                )
-                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        cache_info_btn = gr.Button("📊 Show Cache Status", variant="secondary", size="lg")
+                    with gr.Column(scale=2):
+                        cache_info_display = gr.Textbox(
+                            label="Cache Information",
+                            lines=12,
+                            interactive=False,
+                            placeholder="Click 'Show Cache Status' to see model cache information..."
+                        )
+            
+            # ==============================================================================
+            # HUGGINGFACE CACHE MANAGEMENT SECTION
+            # ==============================================================================
+            with gr.Group():
                 gr.Markdown("### 🗂️ HuggingFace Cache Management")
                 gr.Markdown("View and manage all HuggingFace cached models with selective deletion.")
                 
-                hf_refresh_btn = gr.Button("🔄 Refresh HF Cache", variant="primary", size="lg")
-                hf_checkbox_group = gr.CheckboxGroup(
-                    label="Select HuggingFace cache items to delete",
-                    choices=[],
-                    value=[],
-                    interactive=True,
-                    info="Click 'Refresh HF Cache' to load available models"
-                )
-                
                 with gr.Row():
-                    hf_delete_btn = gr.Button("🗑️ Delete Selected Items", variant="stop", size="lg")
-                    hf_status_display = gr.Markdown("**Status:** Ready to manage cache")
+                    with gr.Column(scale=1):
+                        hf_refresh_btn = gr.Button("🔄 Refresh HF Cache", variant="primary", size="lg")
+                        hf_delete_btn = gr.Button("🗑️ Delete Selected Items", variant="stop", size="lg")
+                        hf_status_display = gr.Markdown("**Status:** Ready to manage cache")
+                    with gr.Column(scale=2):
+                        hf_checkbox_group = gr.CheckboxGroup(
+                            label="Select HuggingFace cache items to delete",
+                            choices=[],
+                            value=[],
+                            interactive=True,
+                            info="Click 'Refresh HF Cache' to load available models"
+                        )
             
             # Set up admin events
             def sync_with_status():
@@ -1082,6 +1112,46 @@ def create_main_interface():
                 outputs=[hf_checkbox_group, hf_status_display, hf_cache_info_state],
                 show_progress=True
             )
+            
+        # ==============================================================================
+        # LORA MANAGEMENT EVENTS SETUP
+        # ==============================================================================
+        setup_lora_management_events(lora_management_components)
+        
+        # Function to refresh LoRA data after management operations
+        def refresh_lora_for_generation(sync_state):
+            """Refresh LoRA data in the image generator after management operations."""
+            try:
+                # Only refresh if sync_state is not 0 (meaning a change occurred)
+                if sync_state == 0:
+                    return [gr.update()] * 5
+                
+                image_generator.refresh_lora_data()
+                
+                # Refresh all LoRA dropdown choices
+                from ui.lora_manager import refresh_lora_dropdown_choices
+                dropdown_update = refresh_lora_dropdown_choices(image_generator.lora_data)
+                
+                # Return the update for all dropdowns
+                return [dropdown_update] * 5  # 5 dropdowns to update
+                
+            except Exception as e:
+                # Return empty update in case of error
+                return [gr.update()] * 5
+        
+        # Connect the sync state to refresh all dropdowns when it changes
+        lora_management_components['sync_state'].change(
+            fn=refresh_lora_for_generation,
+            inputs=[lora_management_components['sync_state']],  # Take the state as input
+            outputs=[
+                lora_components['available_dropdown'],
+                flux_fill_lora_components['available_dropdown'],
+                kontext_lora_components['available_dropdown'],
+                depth_lora_components['available_dropdown'],
+                canny_lora_components['available_dropdown']
+            ]
+        )
+        
 
     return demo
 

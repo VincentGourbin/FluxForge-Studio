@@ -28,13 +28,9 @@ def check_and_migrate_database():
     has_old_structure = 'quantize' in columns or 'steps' in columns
     
     if not has_metadata_json and has_old_structure:
-        print("🔄 Migrating database to new JSON structure...")
         migrate_to_json_structure(conn)
-        print("✅ Database migration completed!")
     elif not has_metadata_json:
-        print("🆕 Creating new JSON-based database structure...")
         create_new_structure(conn)
-        print("✅ New database structure created!")
     
     conn.close()
 
@@ -139,6 +135,7 @@ def init_db():
     Initialize the SQLite database with migration support.
     """
     check_and_migrate_database()
+    init_lora_table()
 
 def save_image_info(details):
     """
@@ -678,15 +675,311 @@ def sync_gallery_and_disk():
             message_parts.append(f"🗑️ {stats['db_entries_removed']} database entry(ies) removed")
         
         if not message_parts:
-            print("✅ Gallery and disk already synchronized - no action required")
+            message = "Gallery and disk already synchronized - no action required"
         else:
-            print("✅ Synchronization completed:")
-            for part in message_parts:
-                print(f"  {part}")
+            message = "Synchronization completed: " + ", ".join(message_parts)
         
         # Return updated gallery list
         return load_history()
         
     except Exception as e:
-        print(f"❌ Error during synchronization: {str(e)}")
         return load_history()  # Return current gallery even if sync failed
+
+# ==============================================================================
+# LORA MANAGEMENT FUNCTIONS
+# ==============================================================================
+
+def init_lora_table():
+    """
+    Initialize the LoRA table in the database.
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS lora (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name TEXT NOT NULL UNIQUE,
+            description TEXT NOT NULL,
+            activation_keyword TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            file_size INTEGER,
+            is_active INTEGER DEFAULT 1
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def get_all_lora():
+    """
+    Get all active LoRA models from the database.
+    
+    Returns:
+        list: List of LoRA dictionaries with all information
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, file_name, description, activation_keyword, created_at, updated_at, file_size, is_active
+        FROM lora 
+        WHERE is_active = 1
+        ORDER BY file_name COLLATE NOCASE
+    ''')
+    
+    lora_list = []
+    for row in cursor.fetchall():
+        lora_list.append({
+            'id': row[0],
+            'file_name': row[1],
+            'description': row[2],
+            'activation_keyword': row[3],
+            'created_at': row[4],
+            'updated_at': row[5],
+            'file_size': row[6],
+            'is_active': row[7]
+        })
+    
+    conn.close()
+    return lora_list
+
+def get_lora_by_id(lora_id):
+    """
+    Get a specific LoRA by its ID.
+    
+    Args:
+        lora_id (int): The ID of the LoRA
+        
+    Returns:
+        dict: LoRA information or None if not found
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, file_name, description, activation_keyword, created_at, updated_at, file_size, is_active
+        FROM lora 
+        WHERE id = ?
+    ''', (lora_id,))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return {
+            'id': row[0],
+            'file_name': row[1],
+            'description': row[2],
+            'activation_keyword': row[3],
+            'created_at': row[4],
+            'updated_at': row[5],
+            'file_size': row[6],
+            'is_active': row[7]
+        }
+    return None
+
+def add_lora(file_name, description, activation_keyword=""):
+    """
+    Add a new LoRA to the database.
+    
+    Args:
+        file_name (str): Name of the LoRA file
+        description (str): Description of the LoRA
+        activation_keyword (str): Activation keyword for the LoRA
+        
+    Returns:
+        tuple: (success: bool, message: str, lora_id: int)
+    """
+    from datetime import datetime
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        # Check if file already exists
+        cursor.execute("SELECT id FROM lora WHERE file_name = ?", (file_name,))
+        if cursor.fetchone():
+            conn.close()
+            return False, f"LoRA with filename '{file_name}' already exists", None
+        
+        # Get file size if file exists
+        lora_file_path = Path('lora') / file_name
+        file_size = None
+        if lora_file_path.exists():
+            file_size = lora_file_path.stat().st_size
+        
+        current_time = datetime.now().isoformat()
+        
+        cursor.execute('''
+            INSERT INTO lora (file_name, description, activation_keyword, created_at, updated_at, file_size, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (file_name, description, activation_keyword, current_time, current_time, file_size, 1))
+        
+        lora_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return True, f"LoRA '{file_name}' added successfully", lora_id
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error adding LoRA: {str(e)}", None
+
+def update_lora(lora_id, description, activation_keyword):
+    """
+    Update an existing LoRA in the database.
+    
+    Args:
+        lora_id (int): ID of the LoRA to update
+        description (str): New description
+        activation_keyword (str): New activation keyword
+        
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    from datetime import datetime
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        # Check if LoRA exists
+        cursor.execute("SELECT file_name FROM lora WHERE id = ?", (lora_id,))
+        result = cursor.fetchone()
+        if not result:
+            conn.close()
+            return False, f"LoRA with ID {lora_id} not found"
+        
+        file_name = result[0]
+        current_time = datetime.now().isoformat()
+        
+        cursor.execute('''
+            UPDATE lora 
+            SET description = ?, activation_keyword = ?, updated_at = ?
+            WHERE id = ?
+        ''', (description, activation_keyword, current_time, lora_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return True, f"LoRA '{file_name}' updated successfully"
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error updating LoRA: {str(e)}"
+
+def delete_lora(lora_id, delete_file=False):
+    """
+    Delete a LoRA from the database and optionally from disk.
+    
+    Args:
+        lora_id (int): ID of the LoRA to delete
+        delete_file (bool): Whether to also delete the file from disk
+        
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        # Get LoRA info before deletion
+        cursor.execute("SELECT file_name FROM lora WHERE id = ?", (lora_id,))
+        result = cursor.fetchone()
+        if not result:
+            conn.close()
+            return False, f"LoRA with ID {lora_id} not found"
+        
+        file_name = result[0]
+        
+        # Delete from database
+        cursor.execute("DELETE FROM lora WHERE id = ?", (lora_id,))
+        
+        # Delete file if requested
+        if delete_file:
+            lora_file_path = Path('lora') / file_name
+            if lora_file_path.exists():
+                lora_file_path.unlink()
+                message = f"LoRA '{file_name}' deleted from database and disk"
+            else:
+                message = f"LoRA '{file_name}' deleted from database (file not found on disk)"
+        else:
+            message = f"LoRA '{file_name}' deleted from database"
+        
+        conn.commit()
+        conn.close()
+        
+        return True, message
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error deleting LoRA: {str(e)}"
+
+def get_lora_for_image_generator():
+    """
+    Get LoRA data in the format expected by the image generator.
+    
+    Returns:
+        list: List of LoRA dictionaries compatible with existing image generator
+    """
+    lora_list = get_all_lora()
+    
+    # Convert to format expected by image generator
+    formatted_lora = []
+    for lora in lora_list:
+        formatted_lora.append({
+            'file_name': lora['file_name'],
+            'description': lora['description'],
+            'activation_keyword': lora['activation_keyword'] or ""
+        })
+    
+    return formatted_lora
+
+def refresh_lora_file_sizes():
+    """
+    Refresh file sizes for all LoRA entries in the database.
+    This is useful when files are added/modified outside the application.
+    
+    Returns:
+        tuple: (success: bool, message: str, updated_count: int)
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("SELECT id, file_name FROM lora")
+        lora_entries = cursor.fetchall()
+        
+        updated_count = 0
+        from datetime import datetime
+        current_time = datetime.now().isoformat()
+        
+        for lora_id, file_name in lora_entries:
+            lora_file_path = Path('lora') / file_name
+            
+            if lora_file_path.exists():
+                file_size = lora_file_path.stat().st_size
+                cursor.execute('''
+                    UPDATE lora 
+                    SET file_size = ?, updated_at = ?
+                    WHERE id = ?
+                ''', (file_size, current_time, lora_id))
+                updated_count += 1
+            else:
+                # File doesn't exist, set size to None
+                cursor.execute('''
+                    UPDATE lora 
+                    SET file_size = NULL, updated_at = ?
+                    WHERE id = ?
+                ''', (current_time, lora_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return True, f"File sizes updated for {updated_count} LoRA entries", updated_count
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error refreshing file sizes: {str(e)}", 0

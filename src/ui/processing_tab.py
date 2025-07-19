@@ -86,137 +86,136 @@ def create_progress_bar(current: int, total: int, percentage: float, task_name: 
 def create_processing_tab():
     """Create the Processing tab interface."""
     
-    with gr.Tab("Processing"):
-        gr.Markdown("## 🔄 Processing Queue")
-        gr.Markdown("**Manage your generation queue** - All generation tasks are queued here for batch processing.")
-        
-        # ==============================================================================
-        # QUEUE STATUS SECTION
-        # ==============================================================================
-        with gr.Row():
-            with gr.Column(scale=2):
-                gr.Markdown("### 📊 Queue Status")
-                
-                # Status display
-                status_display = gr.Markdown(
-                    value="**Status:** Ready to process tasks"
-                )
-                
-                # Queue statistics in HTML format
-                queue_stats_html = gr.HTML(
-                    value="""
-                    <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                        <div style="display: flex; justify-content: space-around; text-align: center;">
-                            <div style="flex: 1; padding: 10px;">
-                                <div style="font-size: 24px; font-weight: bold; color: #FF9500;">0</div>
-                                <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⏳ Pending</div>
-                            </div>
-                            <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
-                                <div style="font-size: 24px; font-weight: bold; color: #007AFF;">0</div>
-                                <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⚙️ Processing</div>
-                            </div>
-                            <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
-                                <div style="font-size: 24px; font-weight: bold; color: #34C759;">0</div>
-                                <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">✅ Completed</div>
-                            </div>
-                            <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
-                                <div style="font-size: 24px; font-weight: bold; color: #FF3B30;">0</div>
-                                <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">❌ Errors</div>
-                            </div>
-                        </div>
-                    </div>
-                    """
-                )
+    gr.Markdown("## 🔄 Processing Queue")
+    gr.Markdown("**Manage your generation queue** - All generation tasks are queued here for batch processing.")
+    
+    # ==============================================================================
+    # QUEUE STATUS SECTION
+    # ==============================================================================
+    with gr.Row():
+        with gr.Column(scale=2):
+            gr.Markdown("### 📊 Queue Status")
             
-            with gr.Column(scale=1):
-                gr.Markdown("### 🎮 Controls")
-                
-                # Main control buttons
-                process_btn = gr.Button(
-                    "🚀 Process Queue",
-                    variant="primary",
-                    size="lg"
-                )
-                
-                stop_btn = gr.Button(
-                    "⏹️ Stop Processing",
-                    variant="stop",
-                    size="lg"
-                )
-                
-                refresh_btn = gr.Button(
-                    "🔄 Refresh",
-                    variant="secondary",
-                    size="lg"
-                )
-                
-                
-        
-        # ==============================================================================
-        # CURRENT PROCESSING SECTION
-        # ==============================================================================
-        with gr.Group():
+            # Status display
+            status_display = gr.Markdown(
+                value="**Status:** Ready to process tasks"
+            )
             
-            current_task_display = gr.HTML(
+            # Queue statistics in HTML format
+            queue_stats_html = gr.HTML(
                 value="""
                 <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                    <div style="text-align: center; color: #000 !important; font-size: 16px; font-style: italic;">
-                        No task currently processing
+                    <div style="display: flex; justify-content: space-around; text-align: center;">
+                        <div style="flex: 1; padding: 10px;">
+                            <div style="font-size: 24px; font-weight: bold; color: #FF9500;">0</div>
+                            <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⏳ Pending</div>
+                        </div>
+                        <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
+                            <div style="font-size: 24px; font-weight: bold; color: #007AFF;">0</div>
+                            <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">⚙️ Processing</div>
+                        </div>
+                        <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
+                            <div style="font-size: 24px; font-weight: bold; color: #34C759;">0</div>
+                            <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">✅ Completed</div>
+                        </div>
+                        <div style="flex: 1; padding: 10px; border-left: 1px solid #ddd;">
+                            <div style="font-size: 24px; font-weight: bold; color: #FF3B30;">0</div>
+                            <div style="font-size: 14px; color: #000 !important; margin-top: 5px;">❌ Errors</div>
+                        </div>
                     </div>
                 </div>
                 """
+            )
+        
+        with gr.Column(scale=1):
+            gr.Markdown("### 🎮 Controls")
+            
+            # Main control buttons
+            process_btn = gr.Button(
+                "🚀 Process Queue",
+                variant="primary",
+                size="lg"
             )
             
-            memory_display = gr.HTML(
-                value="""
-                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                    <div style="text-align: center; color: #000 !important; font-size: 14px; font-style: italic;">
-                        Memory statistics will appear here during processing
-                    </div>
-                </div>
-                """
+            stop_btn = gr.Button(
+                "⏹️ Stop Processing",
+                variant="stop",
+                size="lg"
             )
+            
+            refresh_btn = gr.Button(
+                "🔄 Refresh",
+                variant="secondary",
+                size="lg"
+            )
+            
+            
+    
+    # ==============================================================================
+    # CURRENT PROCESSING SECTION
+    # ==============================================================================
+    with gr.Group():
         
-        # ==============================================================================
-        # QUEUE DISPLAY SECTION
-        # ==============================================================================
-        gr.Markdown("### 📋 Pending Tasks")
-        
-        # Dataframe for pending tasks - full width
-        pending_tasks_dataframe = gr.Dataframe(
-            value=[],
-            headers=["Select", "ID", "Type", "Description"],
-            datatype=["bool", "str", "str", "str"],
-            label="Pending Tasks - Check boxes to select for removal",
-            interactive=True,
-            row_count=(0, "dynamic"),
-            col_count=4,
-            wrap=True,
-            visible=False  # Hidden by default when empty
+        current_task_display = gr.HTML(
+            value="""
+            <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div style="text-align: center; color: #000 !important; font-size: 16px; font-style: italic;">
+                    No task currently processing
+                </div>
+            </div>
+            """
         )
         
-        # Bulk task removal
-        with gr.Row():
-            remove_selected_btn = gr.Button(
-                "🗑️ Remove Selected",
-                variant="secondary",
-                scale=2
-            )
-            select_all_btn = gr.Button(
-                "☑️ Select All",
-                variant="secondary",
-                scale=1
-            )
-            clear_selection_btn = gr.Button(
-                "☐ Clear Selection",
-                variant="secondary",
-                scale=1
-            )
-        
-        
-        # Hidden state for tracking
-        processing_state = gr.State(False)
-        last_update = gr.State(0)
+        memory_display = gr.HTML(
+            value="""
+            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="text-align: center; color: #000 !important; font-size: 14px; font-style: italic;">
+                    Memory statistics will appear here during processing
+                </div>
+            </div>
+            """
+        )
+    
+    # ==============================================================================
+    # QUEUE DISPLAY SECTION
+    # ==============================================================================
+    gr.Markdown("### 📋 Pending Tasks")
+    
+    # Dataframe for pending tasks - full width
+    pending_tasks_dataframe = gr.Dataframe(
+        value=[],
+        headers=["Select", "ID", "Type", "Description"],
+        datatype=["bool", "str", "str", "str"],
+        label="Pending Tasks - Check boxes to select for removal",
+        interactive=True,
+        row_count=(0, "dynamic"),
+        col_count=4,
+        wrap=True,
+        visible=False  # Hidden by default when empty
+    )
+    
+    # Bulk task removal
+    with gr.Row():
+        remove_selected_btn = gr.Button(
+            "🗑️ Remove Selected",
+            variant="secondary",
+            scale=2
+        )
+        select_all_btn = gr.Button(
+            "☑️ Select All",
+            variant="secondary",
+            scale=1
+        )
+        clear_selection_btn = gr.Button(
+            "☐ Clear Selection",
+            variant="secondary",
+            scale=1
+        )
+    
+    
+    # Hidden state for tracking
+    processing_state = gr.State(False)
+    last_update = gr.State(0)
     
     # Return all components for event setup
     return {

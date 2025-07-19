@@ -53,8 +53,8 @@ def generate_depth_map(input_image):
             dtype = torch.bfloat16
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             device = "mps"
-            # Use bfloat16 for MPS for better performance
-            dtype = torch.bfloat16
+            # Use float32 for MPS to avoid dtype conflicts with transformers models
+            dtype = torch.float32
         else:
             device = "cpu"
             dtype = torch.float32
@@ -100,11 +100,29 @@ def generate_depth_map(input_image):
         inputs = image_processor(images=input_image, return_tensors="pt")
         
         # Move inputs to device and ensure correct dtype
-        inputs = {k: v.to(device, dtype=dtype) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+        # Special handling for MPS to avoid dtype conflicts
+        if device == "mps":
+            # Force float32 for MPS to avoid dtype conflicts
+            inputs = {k: v.to(device, dtype=torch.float32) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+            # Also ensure the model is in float32
+            model = model.to(torch.float32)
+        else:
+            inputs = {k: v.to(device, dtype=dtype) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
         
         with torch.no_grad():
-            outputs = model(**inputs)
-            predicted_depth = outputs.predicted_depth
+            try:
+                outputs = model(**inputs)
+                predicted_depth = outputs.predicted_depth
+            except RuntimeError as e:
+                if "Input type" in str(e) and "bias type" in str(e):
+                    print("⚠️  Dtype conflict detected, retrying with float32...")
+                    # Force everything to float32 as fallback
+                    model = model.to(torch.float32)
+                    inputs = {k: v.to(device, dtype=torch.float32) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+                    outputs = model(**inputs)
+                    predicted_depth = outputs.predicted_depth
+                else:
+                    raise e
         
         # Interpolate to original size
         prediction = torch.nn.functional.interpolate(

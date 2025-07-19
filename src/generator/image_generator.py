@@ -88,12 +88,40 @@ class ImageGenerator:
             self.dtype = torch.float32
         
         # Configuration data loaded from config module
-        self.lora_data = config.lora_data
+        self.lora_data = self.get_lora_data()  # Load from database instead of config
         self.lora_directory = config.lora_directory
         self.model_options = config.model_options
         self.controlnet_options = config.controlnet_options
         self.flux_tools_options = config.flux_tools_options
         self.post_processing_options = config.post_processing_options
+    
+    def get_lora_data(self):
+        """
+        Get LoRA data from database instead of JSON file.
+        
+        Returns:
+            list: List of LoRA dictionaries compatible with existing code
+        """
+        try:
+            from core.database import get_lora_for_image_generator
+            return get_lora_for_image_generator()
+        except Exception as e:
+            print(f"⚠️  Error loading LoRA data from database: {e}")
+            print("🔄 Falling back to config file...")
+            return config.lora_data
+    
+    def refresh_lora_data(self):
+        """
+        Refresh LoRA data from database.
+        This should be called after LoRA management operations.
+        """
+        try:
+            from core.database import get_lora_for_image_generator
+            self.lora_data = get_lora_for_image_generator()
+            print(f"✅ LoRA data refreshed: {len(self.lora_data)} models loaded")
+        except Exception as e:
+            print(f"❌ Error refreshing LoRA data: {e}")
+            # Keep existing data if refresh fails
 
     def generate_image(
         self,
