@@ -125,9 +125,18 @@ class MemoryMonitor:
         # System memory
         memory = psutil.virtual_memory()
         stats['system_total_gb'] = memory.total / (1024**3)
-        stats['system_used_gb'] = memory.used / (1024**3)
+        
+        # On macOS, calculate used memory more accurately to match Activity Monitor
+        # Activity Monitor shows: total - available (which includes cached/buffered memory as used)
+        if hasattr(memory, 'available'):
+            stats['system_used_gb'] = (memory.total - memory.available) / (1024**3)
+            stats['system_percent'] = ((memory.total - memory.available) / memory.total) * 100
+        else:
+            # Fallback for systems where available is not provided
+            stats['system_used_gb'] = memory.used / (1024**3)
+            stats['system_percent'] = memory.percent
+            
         stats['system_available_gb'] = memory.available / (1024**3)
-        stats['system_percent'] = memory.percent
         
         # GPU memory if available
         if torch.cuda.is_available():

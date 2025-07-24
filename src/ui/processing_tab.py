@@ -24,6 +24,19 @@ from pathlib import Path
 from core.processing_queue import processing_queue, TaskStatus
 from utils.progress_tracker import global_progress_tracker, format_progress_info
 
+def format_elapsed_time(elapsed_time: float) -> str:
+    """Format elapsed time in a human-readable format."""
+    if elapsed_time < 60:
+        return f"{elapsed_time:.0f}s"
+    elif elapsed_time < 3600:
+        minutes = int(elapsed_time // 60)
+        seconds = int(elapsed_time % 60)
+        return f"{minutes}m {seconds}s"
+    else:
+        hours = int(elapsed_time // 3600)
+        minutes = int((elapsed_time % 3600) // 60)
+        return f"{hours}h {minutes}m"
+
 def calculate_time_remaining(current_step: int, total_steps: int, elapsed_time: float) -> str:
     """Calculate estimated time remaining based on current progress."""
     if current_step <= 0 or total_steps <= 0 or elapsed_time <= 0:
@@ -168,7 +181,7 @@ def create_processing_tab():
         
         memory_display = gr.HTML(
             value="""
-            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                 <div style="text-align: center; color: #000 !important; font-size: 14px; font-style: italic;">
                     Memory statistics will appear here during processing
                 </div>
@@ -354,8 +367,9 @@ def update_current_task() -> Tuple[str, str]:
                 else:
                     task_name = "⚙️ Processing"
                 
-                # Calculate time remaining
+                # Calculate time remaining and format elapsed time
                 time_remaining = calculate_time_remaining(current_step, total_steps, elapsed_time)
+                formatted_elapsed = format_elapsed_time(elapsed_time)
                 
                 # Create progress bar
                 progress_bar = create_progress_bar(current_step, total_steps, percentage, task_name)
@@ -372,7 +386,7 @@ def update_current_task() -> Tuple[str, str]:
                     {progress_bar}
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
                         <div style="color: #000 !important; font-size: 13px;">
-                            ⏱️ <span style="color: #000 !important; font-weight: bold;">Elapsed:</span> {elapsed_time:.1f}s
+                            ⏱️ <span style="color: #000 !important; font-weight: bold;">Elapsed:</span> {formatted_elapsed}
                         </div>
                         <div style="color: #000 !important; font-size: 13px;">
                             ⏰ <span style="color: #000 !important; font-weight: bold;">Remaining:</span> {time_remaining}
@@ -416,7 +430,7 @@ def update_current_task() -> Tuple[str, str]:
                     """
                 
                 memory_text = f"""
-                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                     <div style="font-weight: bold; color: #000 !important; margin-bottom: 8px;">💾 Memory Statistics:</div>
                     <div style="color: #000 !important; font-size: 13px;">{memory_before}</div>
                     {memory_during}
@@ -424,7 +438,7 @@ def update_current_task() -> Tuple[str, str]:
                 """
             else:
                 memory_text = """
-                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                     <div style="text-align: center; color: #000 !important; font-size: 14px;">
                         <span style="color: #000 !important; font-style: italic;">Memory monitoring in progress...</span>
                     </div>
@@ -439,7 +453,7 @@ def update_current_task() -> Tuple[str, str]:
             </div>
             """
             memory_text = """
-            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; padding: 20px; margin: 10px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                 <div style="text-align: center; color: #000 !important; font-size: 14px; font-style: italic;">
                     Memory statistics will appear here during processing
                 </div>

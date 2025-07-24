@@ -207,7 +207,7 @@ def create_main_interface():
     # Initialize application components
     modelbgrm, image_generator = initialize_application()
     
-    with gr.Blocks(title="FluxForge Studio") as demo:
+    with gr.Blocks(title="FluxForge Studio", theme=gr.themes.Glass()) as demo:
         gr.Markdown("# 🎨 FluxForge Studio")
         gr.Markdown("**Professional AI Image Generation Platform** - Create, enhance, and refine images with FLUX.1 models and advanced post-processing tools.")
 
@@ -895,7 +895,7 @@ def create_main_interface():
         # ==============================================================================
         # TAB 5: HISTORY
         # ==============================================================================
-        with gr.Tab("History"):
+        with gr.Tab("History") as history_tab:
             gr.Markdown("## Image generation history")
             
             with gr.Row():
@@ -926,6 +926,12 @@ def create_main_interface():
 
             # Set up history events
             refresh_btn.click(
+                fn=load_history,
+                outputs=gallery
+            )
+            
+            # Auto-refresh when History tab is selected
+            history_tab.select(
                 fn=load_history,
                 outputs=gallery
             )
