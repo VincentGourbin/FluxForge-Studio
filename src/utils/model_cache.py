@@ -119,6 +119,7 @@ def list_cached_flux_models():
         # Core FLUX models
         "black-forest-labs/FLUX.1-dev",
         "black-forest-labs/FLUX.1-schnell", 
+        "black-forest-labs/FLUX.1-Krea-dev",
         "black-forest-labs/FLUX.1-Fill-dev",
         "black-forest-labs/FLUX.1-Kontext-dev",
         "black-forest-labs/FLUX.1-Redux-dev",

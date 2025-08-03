@@ -55,7 +55,7 @@ def load_lora_data():
 lora_data = load_lora_data()
 
 # Model options (no quantization needed with diffusers)
-model_options = ["schnell", "dev"]
+model_options = ["schnell", "dev", "krea-dev"]
 
 # ControlNet options
 controlnet_options = {

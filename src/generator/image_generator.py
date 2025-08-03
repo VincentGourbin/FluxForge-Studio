@@ -261,7 +261,8 @@ class ImageGenerator:
             # Map model alias to HuggingFace model ID
             model_id_map = {
                 'schnell': 'black-forest-labs/FLUX.1-schnell',
-                'dev': 'black-forest-labs/FLUX.1-dev'
+                'dev': 'black-forest-labs/FLUX.1-dev',
+                'krea-dev': 'black-forest-labs/FLUX.1-Krea-dev'
             }
             
             # Determine model ID
@@ -403,8 +404,8 @@ class ImageGenerator:
             else:
                 print(f"⚠️  Quantification {quantization} non supportée")
                 print("🔄 Continuons sans quantification...")
-        elif quantization and quantization != "None" and model_alias not in ["schnell", "dev"]:
-            print(f"⚠️  Quantification disponible pour FLUX Schnell et Dev uniquement")
+        elif quantization and quantization != "None" and model_alias not in ["schnell", "dev", "krea-dev"]:
+            print(f"⚠️  Quantification disponible pour FLUX Schnell, Dev et Krea-dev uniquement")
             print("🔄 Continuons sans quantification...")
 
         # Generate timestamp for file naming and database storage
@@ -471,8 +472,8 @@ class ImageGenerator:
             # Standard text-to-image generation with progress tracking
             print(f"🎨 Starting {model_alias} generation with progress tracking...")
             
-            # Apply progress tracking for dev and schnell models
-            if model_alias in ["dev", "schnell"]:
+            # Apply progress tracking for dev, schnell and krea-dev models
+            if model_alias in ["dev", "schnell", "krea-dev"]:
                 # Reset and start progress tracking
                 global_progress_tracker.reset()
                 global_progress_tracker.apply_tqdm_patches()
@@ -632,8 +633,8 @@ class ImageGenerator:
             - 'dev' model supports guidance control (CFG)
             - Other models like 'schnell' use fixed guidance internally
         """
-        if model_alias == "dev":
-            # Show guidance slider for dev model (supports CFG)
+        if model_alias in ["dev", "krea-dev"]:
+            # Show guidance slider for dev and krea-dev models (supports CFG)
             return gr.update(visible=True)
         else:
             # Hide guidance slider for other models
@@ -652,8 +653,8 @@ class ImageGenerator:
         Returns:
             gr.update: Gradio update object to set the steps value
         """
-        if model_alias == "dev":
-            # Dev model works better with more steps
+        if model_alias in ["dev", "krea-dev"]:
+            # Dev and krea-dev models work better with more steps
             return gr.update(value=25)
         else:
             # Schnell is optimized for fewer steps
