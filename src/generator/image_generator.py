@@ -97,7 +97,7 @@ class ImageGenerator:
     
     def get_lora_data(self):
         """
-        Get LoRA data from database instead of JSON file.
+        Get LoRA data from database.
         
         Returns:
             list: List of LoRA dictionaries compatible with existing code
@@ -107,8 +107,7 @@ class ImageGenerator:
             return get_lora_for_image_generator()
         except Exception as e:
             print(f"⚠️  Error loading LoRA data from database: {e}")
-            print("🔄 Falling back to config file...")
-            return config.lora_data
+            return []
     
     def refresh_lora_data(self):
         """
@@ -329,6 +328,8 @@ class ImageGenerator:
         
         # Handle LoRA loading/updating separately
         if lora_needs_reload:
+            print(f"🔄 LoRA reload needed: {len(lora_paths_list)} LoRA(s) to load")
+            
             # Unload existing LoRA if any - more aggressive cleanup
             try:
                 flux_pipeline.unload_lora_weights()
@@ -338,6 +339,7 @@ class ImageGenerator:
                 elif self.device == 'mps':
                     torch.mps.empty_cache()
                 gc.collect()
+                print("✅ Previous LoRA weights unloaded successfully")
             except Exception as e:
                 print(f"Warning: LoRA unload failed: {e}")
             
@@ -381,6 +383,18 @@ class ImageGenerator:
                 # Set adapter weights if any were loaded
                 if adapter_names:
                     flux_pipeline.set_adapters(adapter_names, adapter_weights=adapter_weights)
+                    print(f"✅ {len(adapter_names)} LoRA adapter(s) activated with scales: {adapter_weights}")
+            else:
+                # No LoRA selected - ensure adapters are completely disabled
+                print("📝 No LoRA selected - ensuring clean state")
+                try:
+                    # Try to explicitly disable any remaining adapters
+                    flux_pipeline.disable_lora()
+                except AttributeError:
+                    # disable_lora might not exist in all diffusers versions
+                    pass
+                except Exception as e:
+                    print(f"Warning: Could not disable LoRA adapters: {e}")
             
             # Update LoRA cache state
             self.current_lora_paths = lora_paths_list

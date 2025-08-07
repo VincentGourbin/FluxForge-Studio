@@ -64,20 +64,20 @@ MFLUX-Gradio supports both FLUX.1 model variants:
 LoRA (Low-Rank Adaptation) models are lightweight fine-tuned models that add specific styles, concepts, or characters to image generation without requiring full model retraining.
 
 ### Configuration
-LoRA information is stored in `lora_info.json`:
-```json
-{
-    "file_name": "example_lora.safetensors",
-    "description": "Style description",
-    "activation_keyword": "trigger_word"
-}
-```
+LoRA information is now stored in the SQLite database and managed through the **LoRA Management** tab in the interface. Legacy `lora_info.json` files are automatically migrated on first run.
+
+Database schema:
+- **file_name**: LoRA model filename (e.g., "example_lora.safetensors")
+- **description**: Human-readable description of the style/effect
+- **activation_keyword**: Trigger word automatically added to prompts
 
 ### Features
 - **Multiple LoRA Support**: Load multiple LoRAs simultaneously
 - **Scale Control**: Adjust influence of each LoRA (0.0-1.0)
 - **Automatic Keyword Insertion**: Activation keywords automatically added to prompts
 - **Dynamic Loading**: LoRAs loaded on-demand based on selection
+- **Parameter Isolation**: Queue tasks capture independent LoRA snapshots, preventing UI state interference
+- **Database Management**: Complete GUI for LoRA upload, editing, and organization
 - **Model Caching**: Intelligent caching prevents unnecessary reloads
 
 ### Usage Tips
@@ -262,7 +262,7 @@ mflux-gradio/
 ### Common Issues
 1. **CUDA Out of Memory**: Enable quantization or reduce image dimensions
 2. **Slow Generation**: Check quantization settings and available VRAM
-3. **LoRA Not Loading**: Verify file paths and `lora_info.json` format
+3. **LoRA Not Loading**: Use the LoRA Management tab to verify database entries and file paths
 4. **Training Failures**: Ensure sufficient disk space and proper image formats
 
 ### Best Practices

@@ -13,7 +13,8 @@ fluxforge-studio/
 │   ├── __init__.py           # Package initialization and metadata
 │   ├── core/                 # Core system components
 │   │   ├── config.py         # Configuration and device management
-│   │   └── database.py       # Image history and metadata management
+│   │   ├── database.py       # Image history and metadata management
+│   │   └── processing_queue.py # Advanced queue system with memory monitoring
 │   ├── generator/            # Image generation engine
 │   │   └── image_generator.py # FLUX.1 model management
 │   ├── postprocessing/       # Post-processing tools and filters
@@ -34,7 +35,8 @@ fluxforge-studio/
 │       ├── mask_utils.py     # Mask creation and processing
 │       ├── canny_processing.py # Canny edge detection
 │       ├── quantization.py   # Memory optimization and quantization
-│       └── model_cache.py    # Model caching and management
+│       ├── model_cache.py    # Model caching and management
+│       └── queue_helpers.py  # Queue task creation with parameter isolation
 ├── outputimage/              # Generated images output directory
 ├── lora/                     # LoRA model files storage
 ├── temp_images/              # Temporary image processing
@@ -60,12 +62,20 @@ fluxforge-studio/
   - Image metadata storage and retrieval
   - Gallery synchronization with filesystem
   - History management functions
+  - LoRA metadata management (migrated from JSON)
+
+- **`processing_queue.py`**: Advanced task queue system
+  - Sequential task processing with memory monitoring
+  - Task type management (STANDARD, FLUX_FILL, KONTEXT, etc.)
+  - Memory cleanup between tasks
+  - Progress tracking and error handling
 
 #### Key Features:
 - Automatic device detection for Apple Silicon (MPS), NVIDIA (CUDA), or CPU
-- LoRA model discovery and metadata loading from `lora_info.json`
+- LoRA database management with migration from legacy JSON format
 - Comprehensive image history with generation parameters
 - Thread-safe database operations
+- **LoRA Parameter Isolation**: Deep copy protection prevents UI state interference with queued tasks
 
 ---
 
@@ -223,11 +233,18 @@ fluxforge-studio/
   - Pre-download utilities for model optimization
   - Storage and bandwidth optimization tools
 
+- **`queue_helpers.py`**: Queue task creation with parameter isolation
+  - Helper functions for all generation types (standard, FLUX Fill, Kontext, etc.)
+  - **Deep copy protection**: Prevents UI state interference with queued tasks
+  - Parameter validation and formatting for queue system
+  - Task description generation for queue display
+
 #### Key Features:
 - Optimized algorithms for common image operations
 - Robust error handling and validation
 - Memory-efficient processing
 - Cross-platform compatibility
+- **Critical Bug Fix**: LoRA parameter isolation ensures consistent task execution
 
 ---
 

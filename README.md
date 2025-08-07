@@ -107,6 +107,7 @@ When using `--share`, the application will:
 - Intensity control (0-1 range)
 - Automatic activation keyword integration
 - Multiple LoRA support (up to 3 simultaneously)
+- **Parameter Isolation**: Queue tasks capture independent LoRA snapshots, preventing UI state interference
 
 **FLUX Postprocessing Tools**
 - **FLUX Canny**: Canny edge detection with configurable thresholds
@@ -294,6 +295,7 @@ The application automatically detects and uses:
 ## 🎯 Key Updates
 
 ### Recent Improvements
+- **LoRA Parameter Isolation**: Fixed critical bug where LoRA selections persisted between queued tasks
 - **Advanced Queue System**: Complete batch processing implementation with memory monitoring
 - **Sequential Task Processing**: Intelligent resource management preventing memory conflicts
 - **Real-time Progress Tracking**: Live updates with memory statistics and task status

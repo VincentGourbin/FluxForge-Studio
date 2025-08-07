@@ -30,29 +30,7 @@ flux_pipeline = None
 # Path to the directory containing LoRA files
 lora_directory = 'lora'
 
-# Path to the JSON file containing LoRA information
-lora_json_file = 'lora_info.json'
-
-def load_lora_data():
-    """
-    Load LoRA model information from the JSON configuration file.
-    
-    Returns:
-        list: List of dictionaries containing LoRA model metadata
-              (file_name, description, activation_keyword)
-    """
-    try:
-        with open(lora_json_file, 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"Warning: {lora_json_file} not found. No LoRA models will be available.")
-        return []
-    except json.JSONDecodeError as e:
-        print(f"Error parsing {lora_json_file}: {e}")
-        return []
-
-# Load LoRA information from JSON file
-lora_data = load_lora_data()
+# LoRA data is now managed in the database - see database.py for LoRA functions
 
 # Model options (no quantization needed with diffusers)
 model_options = ["schnell", "dev", "krea-dev"]

@@ -9,11 +9,13 @@ Features:
 - Helper functions for all generation types
 - Parameter validation and formatting
 - Queue integration with proper task descriptions
+- Deep copy of LoRA parameters to prevent UI state interference
 
 Author: FluxForge Team
 License: MIT
 """
 
+import copy
 from typing import Dict, Any, Optional
 from core.processing_queue import processing_queue, TaskType
 
@@ -44,7 +46,7 @@ def queue_standard_generation(
         'guidance': guidance,
         'height': height,
         'width': width,
-        'lora_state': lora_state,
+        'lora_state': copy.deepcopy(lora_state),  # Deep copy to prevent UI interference
         'lora_strength_1': lora_strength_1,
         'lora_strength_2': lora_strength_2,
         'lora_strength_3': lora_strength_3
@@ -92,7 +94,7 @@ def queue_flux_fill(
         'bottom_percent': bottom_percent,
         'left_percent': left_percent,
         'right_percent': right_percent,
-        'lora_state': lora_state,
+        'lora_state': copy.deepcopy(lora_state),  # Deep copy to prevent UI interference
         'lora_strength_1': lora_strength_1,
         'lora_strength_2': lora_strength_2,
         'lora_strength_3': lora_strength_3
@@ -123,7 +125,7 @@ def queue_kontext(
         'steps': steps,
         'guidance_scale': guidance_scale,
         'quantization': quantization,
-        'lora_state': lora_state,
+        'lora_state': copy.deepcopy(lora_state),  # Deep copy to prevent UI interference
         'lora_strength_1': lora_strength_1,
         'lora_strength_2': lora_strength_2,
         'lora_strength_3': lora_strength_3
@@ -154,7 +156,7 @@ def queue_flux_depth(
         'steps': steps,
         'guidance_scale': guidance_scale,
         'quantization': quantization,
-        'lora_state': lora_state,
+        'lora_state': copy.deepcopy(lora_state),  # Deep copy to prevent UI interference
         'lora_strength_1': lora_strength_1,
         'lora_strength_2': lora_strength_2,
         'lora_strength_3': lora_strength_3
@@ -189,7 +191,7 @@ def queue_flux_canny(
         'quantization': quantization,
         'low_threshold': low_threshold,
         'high_threshold': high_threshold,
-        'lora_state': lora_state,
+        'lora_state': copy.deepcopy(lora_state),  # Deep copy to prevent UI interference
         'lora_strength_1': lora_strength_1,
         'lora_strength_2': lora_strength_2,
         'lora_strength_3': lora_strength_3
