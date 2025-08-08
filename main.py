@@ -87,6 +87,7 @@ from ui.lora_manager import (
     create_lora_manager_interface,
     setup_lora_events
 )
+# Qwen-Image is now integrated into Content Creation tab
 
 # Import utility modules
 from utils.image_processing import ensure_rgb_format, cleanup_memory, save_image_with_metadata
@@ -220,6 +221,10 @@ def create_main_interface():
             # Main prompt input
             prompt = create_prompt_input("Prompt (image description)", 2, "Describe the image you want to generate...")
             prompt.value = "Luxury food photograph"
+            
+            # Negative prompt (conditionally visible for Qwen-Image)
+            negative_prompt = create_prompt_input("Negative Prompt (Optional)", 2, "What you don't want in the image...")
+            negative_prompt.visible = False
 
             gr.Markdown("### Main Parameters")
             
@@ -255,6 +260,11 @@ def create_main_interface():
                 inputs=model_alias,
                 outputs=steps
             )
+            model_alias.change(
+                fn=image_generator.update_negative_prompt_visibility,
+                inputs=model_alias,
+                outputs=negative_prompt
+            )
 
             # Image dimensions
             dimension_controls = create_image_dimensions_controls(1024, 1024)
@@ -273,7 +283,7 @@ def create_main_interface():
             generate_btn.click(
                 fn=queue_standard_generation,
                 inputs=[
-                    prompt, model_alias, quantization, steps, seed, metadata, guidance, height, width,
+                    prompt, negative_prompt, model_alias, quantization, steps, seed, metadata, guidance, height, width,
                     lora_components['state'], lora_components['strength_1'], 
                     lora_components['strength_2'], lora_components['strength_3']
                 ],
@@ -957,14 +967,14 @@ def create_main_interface():
             )
 
         # ==============================================================================
-        # TAB 6: LORA MANAGEMENT
+        # TAB 7: LORA MANAGEMENT
         # ==============================================================================
         from ui.lora_management import create_lora_management_tab, setup_lora_management_events
         
         lora_management_components = create_lora_management_tab()
         
         # ==============================================================================
-        # TAB 7: ADMIN
+        # TAB 8: ADMIN
         # ==============================================================================
         with gr.Tab("Admin"):
             gr.Markdown("## Administration and maintenance tools")

@@ -38,6 +38,7 @@ class TaskType(Enum):
     FLUX_REDUX = "flux_redux"
     BACKGROUND_REMOVAL = "background_removal"
     UPSCALING = "upscaling"
+    QWEN_GENERATION = "qwen_generation"
 
 class TaskStatus(Enum):
     """Enumeration of task statuses."""
@@ -97,6 +98,14 @@ class ProcessingTask:
                 return f"Upscaling (x{factor}, {quantization})"
             else:
                 return f"Upscaling (x{factor})"
+        
+        elif self.type == TaskType.QWEN_GENERATION:
+            prompt = self.parameters.get('prompt', 'Unknown prompt')[:50]
+            quantization = self.parameters.get('quantization', 'None')
+            if quantization != 'None':
+                return f"Qwen-Image: {prompt}... ({quantization})"
+            else:
+                return f"Qwen-Image: {prompt}..."
         
         return f"{self.type.value.replace('_', ' ').title()} Task"
     
@@ -434,6 +443,9 @@ class ProcessingQueue:
                 params.get('quantization', 'None')
             )
         
+        elif task.type == TaskType.QWEN_GENERATION:
+            return self._execute_qwen_generation(params, task)
+        
         else:
             raise ValueError(f"Unknown task type: {task.type}")
     
@@ -494,6 +506,111 @@ class ProcessingQueue:
             *lora_checkboxes,                   # LoRA selections
             *lora_scales                        # LoRA scales
         )
+    
+    def _execute_qwen_generation(self, params: Dict[str, Any], task: 'ProcessingTask'):
+        """Execute Qwen-Image generation task."""
+        from generator.qwen_generator import get_qwen_generator
+        from utils.image_processing import save_image_with_metadata
+        from core.database import save_standard_generation
+        from datetime import datetime
+        from pathlib import Path
+        
+        # Get Qwen generator instance
+        qwen_generator = get_qwen_generator()
+        
+        # Process LoRA parameters (similar to standard generation but simpler)
+        lora_paths = []
+        lora_scales = []
+        
+        lora_state = params.get('lora_state')
+        if lora_state:
+            strengths = [params.get('lora_strength_1', 0.8), 
+                        params.get('lora_strength_2', 0.8), 
+                        params.get('lora_strength_3', 0.8)]
+            
+            for i, selected_lora in enumerate(lora_state):
+                if i < len(strengths) and selected_lora.get('file_path'):
+                    lora_paths.append(selected_lora['file_path'])
+                    lora_scales.append(strengths[i] if strengths[i] is not None else 0.8)
+        
+        # Create progress callback to update task progress (using tqdm interception)
+        def progress_callback(step: int, timestep: int = 0, latents=None):
+            """Update task progress based on generation step."""
+            total_steps = params['steps']
+            progress = min((step / total_steps) * 100, 99)  # Cap at 99% until completion
+            # Just update progress, keep status as PROCESSING
+            self._update_progress(task, progress)
+            # Update description to show current step
+            task.description = f"🎨 Qwen: Step {step}/{total_steps} - {params.get('prompt', '')[:40]}..."
+        
+        # Call Qwen generator with progress tracking
+        image, status = qwen_generator.generate_image(
+            prompt=params['prompt'],
+            negative_prompt=params.get('negative_prompt', ''),
+            width=params['width'],
+            height=params['height'],
+            num_inference_steps=params['steps'],
+            guidance_scale=params['guidance_scale'],
+            seed=params['seed'],
+# Removed magic prompt parameters - they just added generic keywords
+            lora_paths=lora_paths,
+            lora_scales=lora_scales,
+            quantization=params.get('quantization', 'None'),
+            progress_callback=progress_callback
+        )
+        
+        if image is None:
+            raise RuntimeError(f"Qwen generation failed: {status}")
+        
+        # Save image to filesystem with metadata
+        timestamp_obj = datetime.now()
+        timestamp_str = timestamp_obj.strftime('%Y-%m-%d %H:%M:%S')  # For database (readable)
+        timestamp_file = timestamp_obj.strftime("%Y%m%d_%H%M%S")     # For filename (compact)
+        filename = f"qwen_image_{timestamp_file}.png"
+        output_path = Path("outputimage") / filename
+        
+        # Prepare metadata for saving
+        metadata = {
+            "prompt": params['prompt'],
+            "negative_prompt": params.get('negative_prompt', ''),
+            "model": "Qwen-Image",
+            "width": params['width'],
+            "height": params['height'],
+            "steps": params['steps'],
+            "guidance_scale": params['guidance_scale'],
+            "seed": params['seed'],
+            "use_magic_prompt": params.get('use_magic_prompt', True),
+            "magic_language": params.get('magic_language', 'en'),
+            "quantization": params.get('quantization', 'None'),
+            "timestamp": timestamp_str
+        }
+        
+        # Save image with metadata
+        success = save_image_with_metadata(image, output_path, metadata)
+        if not success:
+            print(f"⚠️  Warning: Could not save image metadata to {output_path}")
+        
+        # Save to database for History tab
+        try:
+            save_standard_generation(
+                timestamp=timestamp_str,
+                seed=params['seed'],
+                prompt=params['prompt'],
+                model_alias='Qwen-Image',
+                steps=params['steps'],
+                guidance=params['guidance_scale'],
+                height=params['height'],
+                width=params['width'],
+                lora_paths=lora_paths,
+                lora_scales=lora_scales,
+                output_filename=str(output_path),
+                negative_prompt=params.get('negative_prompt', '')
+            )
+            print(f"✅ Qwen image saved to database: {filename}")
+        except Exception as db_error:
+            print(f"⚠️  Database save failed: {db_error}")
+        
+        return image
     
     
     def stop_processing(self):

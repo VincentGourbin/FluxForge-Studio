@@ -21,6 +21,7 @@ from core.processing_queue import processing_queue, TaskType
 
 def queue_standard_generation(
     prompt: str,
+    negative_prompt: str,
     model_alias: str,
     quantization: str,
     steps: int,
@@ -34,7 +35,24 @@ def queue_standard_generation(
     lora_strength_2: float,
     lora_strength_3: float
 ) -> str:
-    """Add a standard image generation task to the queue."""
+    """Add a standard image generation task to the queue (FLUX or Qwen)."""
+    
+    # Route to Qwen if qwen-image is selected
+    if model_alias == "qwen-image":
+        return queue_qwen_generation(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            steps=steps,
+            guidance_scale=guidance,
+            seed=seed,
+            lora_state=lora_state,
+            lora_strength_1=lora_strength_1,
+            lora_strength_2=lora_strength_2,
+            lora_strength_3=lora_strength_3,
+            quantization=quantization
+        )
     
     parameters = {
         'prompt': prompt,
@@ -255,3 +273,58 @@ def queue_upscaling(input_image: Any, upscale_factor: float, quantization: str =
     task_id = processing_queue.add_task(TaskType.UPSCALING, parameters, description)
     
     return f"✅ Added to queue: {description} (ID: {task_id[:8]})"
+
+def queue_qwen_generation(
+    prompt: str,
+    negative_prompt: str,
+    width: int,
+    height: int,
+    steps: int,
+    guidance_scale: float,
+    seed: int,
+    # Removed magic prompt parameters
+    lora_state: Any,
+    lora_strength_1: float,
+    lora_strength_2: float,
+    lora_strength_3: float,
+    quantization: str
+) -> str:
+    """Add a Qwen-Image generation task to the queue."""
+    
+    # Validation prompt
+    if not prompt or not prompt.strip():
+        return "❌ Please enter a prompt"
+    
+    # Handle seed generation: 0 or None means generate random seed
+    if seed is None or int(seed) == 0:
+        import random
+        seed = random.randint(1, 2**32 - 1)
+    else:
+        seed = int(seed)
+    
+    parameters = {
+        'prompt': prompt,
+        'negative_prompt': negative_prompt,
+        'width': width,
+        'height': height,
+        'steps': steps,
+        'guidance_scale': guidance_scale,
+        'seed': seed,
+        # Removed magic prompt parameters
+        'lora_state': copy.deepcopy(lora_state),  # Deep copy to prevent UI interference
+        'lora_strength_1': lora_strength_1,
+        'lora_strength_2': lora_strength_2,
+        'lora_strength_3': lora_strength_3,
+        'quantization': quantization
+    }
+    
+    # Generate description
+    prompt_part = f"Qwen: {prompt[:30]}..."
+    quant_part = f"Quantization: {quantization}" if quantization != "None" else ""
+    size_part = f"Size: {width}x{height}"
+    description_parts = [prompt_part, quant_part, size_part]
+    description = ', '.join(filter(None, description_parts))
+    
+    task_id = processing_queue.add_task(TaskType.QWEN_GENERATION, parameters, description)
+    
+    return f"✅ Added to queue: {description[:50]}... (ID: {task_id[:8]})"

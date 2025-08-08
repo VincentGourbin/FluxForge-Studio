@@ -2,7 +2,7 @@
 
 ## Overview
 
-FluxForge Studio is a professional AI image generation platform built with a modular architecture and clear separation of concerns. The application uses the `src/` directory pattern with specialized subdirectories for different functional areas, providing a scalable and maintainable codebase.
+FluxForge Studio is a professional AI image generation platform built with a modular architecture and clear separation of concerns. The application supports both FLUX.1 and Qwen-Image models with a unified interface, using the `src/` directory pattern with specialized subdirectories for different functional areas, providing a scalable and maintainable codebase.
 
 ## Project Structure
 
@@ -16,7 +16,8 @@ fluxforge-studio/
 │   │   ├── database.py       # Image history and metadata management
 │   │   └── processing_queue.py # Advanced queue system with memory monitoring
 │   ├── generator/            # Image generation engine
-│   │   └── image_generator.py # FLUX.1 model management
+│   │   ├── image_generator.py # FLUX.1 model management
+│   │   └── qwen_generator.py  # Qwen-Image model management
 │   ├── postprocessing/       # Post-processing tools and filters
 │   │   ├── flux_fill.py      # Inpainting/Outpainting
 │   │   ├── flux_canny.py     # Canny edge-guided generation
@@ -66,9 +67,10 @@ fluxforge-studio/
 
 - **`processing_queue.py`**: Advanced task queue system
   - Sequential task processing with memory monitoring
-  - Task type management (STANDARD, FLUX_FILL, KONTEXT, etc.)
+  - Task type management (STANDARD, FLUX_FILL, KONTEXT, QWEN_GENERATION, etc.)
   - Memory cleanup between tasks
   - Progress tracking and error handling
+  - Support for both FLUX.1 and Qwen-Image task types
 
 #### Key Features:
 - Automatic device detection for Apple Silicon (MPS), NVIDIA (CUDA), or CPU
@@ -81,22 +83,32 @@ fluxforge-studio/
 
 ### 📁 `src/generator/` - Image Generation Engine
 
-**Purpose**: Core FLUX.1 model management and image generation pipeline.
+**Purpose**: Core image generation pipeline supporting both FLUX.1 and Qwen-Image models.
 
 #### Files:
-- **`image_generator.py`**: Main image generation class
-  - FLUX.1 model loading and caching (schnell, dev variants)
+- **`image_generator.py`**: FLUX.1 image generation class
+  - FLUX.1 model loading and caching (schnell, dev, krea-dev variants)
   - LoRA integration and dynamic loading
   - ControlNet support with Canny edge detection
   - Memory management and optimization
   - 8-bit quantization support with optimum.quanto
 
+- **`qwen_generator.py`**: Qwen-Image generation class
+  - Qwen-Image model loading and caching with diffusers
+  - LoRA integration compatible with diffusers pipeline
+  - Negative prompt support for enhanced control
+  - True CFG Scale implementation
+  - 8-bit quantization using optimum.quanto
+  - Custom progress tracking with tqdm interception
+
 #### Key Features:
-- Model caching to prevent unnecessary reloads
-- Dynamic LoRA loading with configurable intensities
-- ControlNet integration for guided generation
+- Model caching to prevent unnecessary reloads across both model types
+- Dynamic LoRA loading with configurable intensities for all models
+- ControlNet integration for guided generation (FLUX.1 only)
 - Automatic memory cleanup and garbage collection
-- Support for multiple FLUX.1 model variants
+- Support for multiple model variants: FLUX.1 (schnell, dev, krea-dev) and Qwen-Image
+- Adaptive UI system that adjusts interface based on selected model
+- Queue system integration for both FLUX.1 and Qwen-Image tasks
 
 ---
 
@@ -300,10 +312,17 @@ python main.py
 - Dynamic discovery and loading through `src/core/config.py`
 
 ### Model Configuration:
-- FLUX.1 models auto-downloaded or specify local paths
-- Device selection: MPS > GPU > CPU fallback
-- Quantization options: 8-bit (optimum.quanto) or no quantization
+- FLUX.1 models auto-downloaded or specify local paths (schnell, dev, krea-dev)
+- Qwen-Image model auto-downloaded from HuggingFace Hub (Qwen/Qwen-Image)
+- Device selection: MPS > GPU > CPU fallback for all models
+- Quantization options: 8-bit (optimum.quanto) or no quantization for both FLUX.1 and Qwen-Image
 - Cross-platform quantization support with automatic fallback
+
+### Adaptive UI Configuration:
+- Content Creation tab automatically adapts based on selected model
+- Negative prompt control only visible for Qwen-Image
+- Guidance scale adapts: hidden for schnell, "Guidance Scale" for dev/krea-dev, "True CFG Scale" for Qwen-Image
+- Default parameters automatically set based on model (4 steps for schnell, 25 for dev/krea-dev, 50 for Qwen-Image)
 
 ### Database Configuration:
 - SQLite database: `generated_images.db`
@@ -335,12 +354,14 @@ python main.py
 The professional platform provides comprehensive FLUX.1 model integration:
 
 ### Core Capabilities:
-- **Complete FLUX.1 Suite**: Support for dev, schnell, Fill, Depth, Canny, Redux, and Kontext models
+- **Complete FLUX.1 Suite**: Support for dev, schnell, krea-dev, Fill, Depth, Canny, Redux, and Kontext models
+- **Qwen-Image Integration**: Full support for Qwen-Image model with negative prompt and True CFG Scale
+- **Unified Interface**: Single Content Creation tab supporting both FLUX.1 and Qwen-Image with adaptive controls
 - **Advanced Post-Processing**: Real-time previews and professional-grade image manipulation
-- **LoRA Integration**: Dynamic loading and management across all tools
+- **LoRA Integration**: Dynamic loading and management across all tools and models
 - **Memory Optimization**: 8-bit quantization with ~70% memory reduction using optimum.quanto
-- **Cross-Platform Quantization**: Tested on MPS, compatible with CUDA and CPU
-- **Professional UI**: Clean, intuitive interface designed for content creators
+- **Cross-Platform Quantization**: Tested on MPS, compatible with CUDA and CPU for all models
+- **Professional UI**: Clean, intuitive interface designed for content creators with adaptive UI system
 
 ### Architecture Benefits:
 - **Maintainability**: Clear separation makes code easier to understand and modify
@@ -373,8 +394,8 @@ The professional platform provides comprehensive FLUX.1 model integration:
 
 ## Conclusion
 
-FluxForge Studio represents a professional-grade AI image generation platform built on a solid modular architecture. The clear separation of concerns, comprehensive FLUX.1 model integration, and production-ready codebase make it an ideal foundation for content creators and developers alike.
+FluxForge Studio represents a professional-grade AI image generation platform built on a solid modular architecture. The clear separation of concerns, comprehensive FLUX.1 and Qwen-Image model integration, and production-ready codebase make it an ideal foundation for content creators and developers alike.
 
-The platform successfully combines power with usability, offering advanced features like multiple FLUX.1 variants, real-time previews, LoRA management, and professional post-processing tools, all wrapped in an intuitive interface.
+The platform successfully combines power with usability, offering advanced features like multiple FLUX.1 variants, Qwen-Image support with negative prompts, adaptive UI system, real-time previews, LoRA management, and professional post-processing tools, all wrapped in an intuitive unified interface.
 
 For specific implementation details, refer to the comprehensive docstrings within each module and the example usage patterns in `main.py`.

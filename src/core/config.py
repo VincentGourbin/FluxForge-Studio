@@ -33,7 +33,7 @@ lora_directory = 'lora'
 # LoRA data is now managed in the database - see database.py for LoRA functions
 
 # Model options (no quantization needed with diffusers)
-model_options = ["schnell", "dev", "krea-dev"]
+model_options = ["schnell", "dev", "krea-dev", "qwen-image"]
 
 # ControlNet options
 controlnet_options = {

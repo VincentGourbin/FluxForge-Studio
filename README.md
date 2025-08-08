@@ -1,14 +1,16 @@
-# FluxForge Studio: Advanced FLUX.1 Image Generation Interface
+# FluxForge Studio: Advanced AI Image Generation Interface
 
-A comprehensive web-based interface for FLUX.1 image generation with advanced queue system, dynamic tool system, LoRA support, prompt enhancement, and background removal capabilities.
+A comprehensive web-based interface for FLUX.1 and Qwen-Image generation with advanced queue system, dynamic tool system, LoRA support, prompt enhancement, and background removal capabilities.
 
 ## 🚀 Features
 
 ### 🎨 Advanced Image Generation
-- **FLUX.1 Models**: Support for schnell and dev variants with diffusers library
+- **FLUX.1 Models**: Support for schnell, dev, and krea-dev variants with diffusers library
+- **Qwen-Image Model**: Advanced text-to-image model with negative prompt and True CFG Scale support
 - **Memory Optimization**: 8-bit quantization with ~70% memory reduction using optimum.quanto
 - **Dynamic Tool System**: Modular selection of LoRA, ControlNet, and FLUX Tools
-- **LoRA Integration**: Multiple LoRA models with individual intensity control (0-1)
+- **LoRA Integration**: Multiple LoRA models with individual intensity control (0-1) for both FLUX.1 and Qwen-Image
+- **Adaptive UI**: Content Creation interface automatically adapts based on selected model
 - **FLUX Canny**: Specialized Canny edge ControlNet with configurable thresholds
 - **FLUX Tools**: Kontext for image editing and transformation
 - **Background Removal**: AI-powered background removal with rembg
@@ -128,12 +130,13 @@ When using `--share`, the application will:
 
 ### Image Generation Process
 1. Enter your prompt in the **Content Creation** tab
-2. Select model (schnell/dev) and configure basic parameters
-3. Add desired tools using the dynamic tool system
-4. Adjust tool-specific parameters
-5. Click "Add to Queue" to queue your generation
-6. Monitor progress in the **Processing Queue** tab
-7. View completed images in the **History** tab
+2. Select model (schnell/dev/krea-dev/qwen-image) and configure basic parameters
+3. For Qwen-Image: Use negative prompt and True CFG Scale controls as needed
+4. Add desired tools using the dynamic tool system (LoRA, ControlNet, FLUX Tools)
+5. Adjust tool-specific parameters
+6. Click "Generate Image" to automatically queue your generation
+7. Monitor progress in the **Processing Queue** tab
+8. View completed images in the **History** tab
 
 ### Processing Queue Management
 1. **Queue Tasks**: All generation operations are automatically queued
@@ -170,7 +173,8 @@ mflux-gradio/
 │   │   ├── database.py        # SQLite database operations
 │   │   └── processing_queue.py # Advanced queue system with memory monitoring
 │   ├── generator/             # Image generation
-│   │   └── image_generator.py # FLUX.1 generation with diffusers
+│   │   ├── image_generator.py # FLUX.1 generation with diffusers
+│   │   └── qwen_generator.py  # Qwen-Image generation with LoRA and quantization
 │   ├── enhancement/           # AI enhancement tools
 │   │   └── prompt_enhancer.py # Ollama prompt enhancement
 │   ├── postprocessing/        # FLUX postprocessing tools
@@ -223,9 +227,10 @@ The application automatically detects and uses:
 - **CPU** (fallback)
 
 ### Model Configuration
-- FLUX.1 models loaded via diffusers library
+- FLUX.1 models loaded via diffusers library (schnell, dev, krea-dev)
+- Qwen-Image model loaded via diffusers library with custom pipeline
 - ControlNet models loaded on-demand
-- Intelligent model caching for performance
+- Intelligent model caching for performance across all models
 
 ## 🔧 Advanced Features
 
@@ -254,7 +259,7 @@ The application automatically detects and uses:
 - **Device Optimization**: Adapts to available hardware
 
 #### Quantization Features
-- **Supported Models**: FLUX Schnell, Dev, and all postprocessing tools (Fill, Kontext, Depth, Canny, Redux)
+- **Supported Models**: FLUX Schnell, Dev, Krea-dev, Qwen-Image, and all postprocessing tools (Fill, Kontext, Depth, Canny, Redux)
 - **Memory Reduction**: Up to 70% GPU memory savings with 8-bit quantization
 - **Performance**: Tested on MPS devices with minimal quality loss
 - **LoRA Compatibility**: Quantization applied AFTER LoRA loading for full compatibility
@@ -295,6 +300,9 @@ The application automatically detects and uses:
 ## 🎯 Key Updates
 
 ### Recent Improvements
+- **Qwen-Image Integration**: Full integration of Qwen-Image model with adaptive UI, LoRA support, and quantization
+- **Unified Content Creation**: Single interface supporting both FLUX.1 and Qwen-Image with model-specific controls
+- **Adaptive UI System**: Interface automatically adapts based on selected model (negative prompt for Qwen-Image, True CFG Scale)
 - **LoRA Parameter Isolation**: Fixed critical bug where LoRA selections persisted between queued tasks
 - **Advanced Queue System**: Complete batch processing implementation with memory monitoring
 - **Sequential Task Processing**: Intelligent resource management preventing memory conflicts
@@ -325,9 +333,11 @@ The application automatically detects and uses:
 - **Low**: Optional Ollama dependencies
 
 ### Completed ✅
+- **Qwen-Image Integration**: Complete integration with adaptive UI, LoRA support, quantization, and queue processing
 - **Batch Processing System**: Complete queue implementation with memory monitoring
-- **8-bit Quantization**: Memory optimization with optimum.quanto
+- **8-bit Quantization**: Memory optimization with optimum.quanto for all models
 - **LoRA Management System**: Complete GUI interface for LoRA upload, editing, deletion, and database management
+- **Adaptive UI System**: Dynamic interface that adapts to selected model capabilities
 
 Contributions welcome! Feel free to open issues for feature requests or bug reports.
 
@@ -338,6 +348,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🙏 Acknowledgments
 
 - [FLUX.1](https://github.com/black-forest-labs/flux) by Black Forest Labs
+- [Qwen-Image](https://huggingface.co/Qwen/Qwen-Image) by Alibaba Cloud
 - [Diffusers](https://github.com/huggingface/diffusers) by Hugging Face
 - [Gradio](https://gradio.app/) - Web interface framework
 - [Ollama](https://ollama.ai/) - Local LLM integration

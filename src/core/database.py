@@ -146,7 +146,7 @@ def save_image_info(details):
     pass
 
 def save_standard_generation(timestamp, seed, prompt, model_alias, steps, guidance, 
-                           height, width, lora_paths, lora_scales, output_filename):
+                           height, width, lora_paths, lora_scales, output_filename, negative_prompt=None):
     """
     Save standard text-to-image generation to database.
     """
@@ -161,6 +161,10 @@ def save_standard_generation(timestamp, seed, prompt, model_alias, steps, guidan
         'lora_paths': lora_paths,
         'lora_scales': lora_scales
     }
+    
+    # Add negative_prompt if provided (for Qwen-Image)
+    if negative_prompt:
+        metadata['negative_prompt'] = negative_prompt
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -416,6 +420,7 @@ def load_history():
 def get_image_details(index):
     """
     Retrieve detailed information about a specific image by its index.
+    Only considers images that still exist on the filesystem.
     
     Args:
         index (int): Index of the image in the history (0-based)
@@ -427,11 +432,18 @@ def get_image_details(index):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('SELECT timestamp, generation_type, output_filename, metadata_json FROM images ORDER BY timestamp DESC')
-    records = cursor.fetchall()
+    all_records = cursor.fetchall()
     conn.close()
 
-    if 0 <= index < len(records):
-        timestamp, generation_type, output_filename, metadata_json = records[index]
+    # Filter to only include records where the file still exists (same logic as load_history)
+    existing_records = []
+    for record in all_records:
+        timestamp, generation_type, output_filename, metadata_json = record
+        if os.path.exists(output_filename):
+            existing_records.append(record)
+
+    if 0 <= index < len(existing_records):
+        timestamp, generation_type, output_filename, metadata_json = existing_records[index]
         
         try:
             metadata = json.loads(metadata_json)
@@ -450,6 +462,8 @@ def get_image_details(index):
         # Basic parameters
         if 'prompt' in metadata:
             details_lines.append(f"  💬 Prompt: {metadata['prompt']}")
+        if 'negative_prompt' in metadata and metadata['negative_prompt']:
+            details_lines.append(f"  🚫 Negative Prompt: {metadata['negative_prompt']}")
         if 'seed' in metadata:
             details_lines.append(f"  🎲 Seed: {metadata['seed']}")
         if 'model_alias' in metadata:

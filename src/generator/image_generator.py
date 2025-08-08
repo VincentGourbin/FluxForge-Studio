@@ -648,8 +648,11 @@ class ImageGenerator:
             - Other models like 'schnell' use fixed guidance internally
         """
         if model_alias in ["dev", "krea-dev"]:
-            # Show guidance slider for dev and krea-dev models (supports CFG)
-            return gr.update(visible=True)
+            # Show guidance slider for dev and krea-dev models (CFG)
+            return gr.update(visible=True, label="Guidance Scale - Controls prompt adherence", value=3.5)
+        elif model_alias == "qwen-image":
+            # Show True CFG Scale for Qwen-Image with different default value
+            return gr.update(visible=True, label="True CFG Scale - Qwen-Image guidance", value=4.0)
         else:
             # Hide guidance slider for other models
             return gr.update(visible=False)
@@ -670,6 +673,25 @@ class ImageGenerator:
         if model_alias in ["dev", "krea-dev"]:
             # Dev and krea-dev models work better with more steps
             return gr.update(value=25)
+        elif model_alias == "qwen-image":
+            # Qwen-Image default steps
+            return gr.update(value=50)
         else:
             # Schnell is optimized for fewer steps
             return gr.update(value=4)
+    
+    def update_negative_prompt_visibility(self, model_alias):
+        """Update UI visibility of negative prompt based on selected model.
+        
+        Args:
+            model_alias (str): The selected model identifier
+            
+        Returns:
+            gr.update: Gradio update object to show/hide the negative prompt control
+        """
+        if model_alias == "qwen-image":
+            # Show negative prompt for Qwen-Image
+            return gr.update(visible=True)
+        else:
+            # Hide negative prompt for FLUX models
+            return gr.update(visible=False)

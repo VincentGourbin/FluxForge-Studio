@@ -7,8 +7,11 @@ torch>=2.0.0
 torchvision>=0.15.0
 transformers>=4.30.0
 
-# FLUX.1 and diffusers (from main branch for latest features)
+# FLUX.1 and diffusers (from main branch for latest features including Qwen-Image support)
 git+https://github.com/huggingface/diffusers.git
+
+# Qwen-Image model requirements
+# Ensure we have the latest diffusers for Qwen-Image compatibility
 
 # Image processing
 pillow>=9.0.0
@@ -22,6 +25,8 @@ ollama>=0.1.0
 accelerate>=0.20.0
 safetensors>=0.3.0
 peft>=0.4.0
+protobuf>=3.20.0
+sentencepiece>=0.1.95
 
 # Quantization support (cross-platform, replaces bitsandbytes)
 optimum[quanto]>=0.1.0
