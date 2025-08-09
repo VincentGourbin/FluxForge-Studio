@@ -3,6 +3,7 @@
 This document provides detailed information about all features available in MFLUX-Gradio.
 
 ## 📑 Table of Contents
+- [Performance & Metadata](#performance--metadata)
 - [Image Generation](#image-generation)
 - [LoRA Support](#lora-support)
 - [ControlNet Integration](#controlnet-integration)
@@ -10,6 +11,44 @@ This document provides detailed information about all features available in MFLU
 - [Background Removal](#background-removal)
 - [Training Pipeline](#training-pipeline)
 - [History Management](#history-management)
+
+## ⏱️ Performance & Metadata
+
+### Performance Timing System
+MFLUX-Gradio includes comprehensive performance monitoring with dual timing measurements:
+
+#### **Timing Metrics**
+- **Total Generation Time**: End-to-end timing from function start to image save completion
+- **Model Execution Time**: Pure pipeline execution timing around `pipeline()` calls only
+- **Real-time Display**: Console output shows timing (e.g., `⏱️ Generation completed in 15.2s (model: 14.8s)`)
+- **High Precision**: Measurements rounded to 2 decimal places for clean display
+
+#### **Cross-Model Support**
+- **FLUX.1 Models**: All variants (schnell, dev, krea-dev) include timing measurements
+- **Qwen-Image**: Full timing support with model-specific optimizations
+- **Post-Processing**: Timing available for all FLUX tools (Fill, Depth, Canny, Redux, Kontext)
+- **Queue Integration**: Timing data preserved through batch processing system
+
+#### **Database Integration** 
+- **Automatic Storage**: All timing data automatically saved to metadata
+- **Historical Analysis**: Performance metrics available in image history
+- **No User Toggle**: Timing always enabled - no configuration needed
+
+### Automatic Metadata Management
+All generation parameters and performance data are automatically saved:
+
+#### **Always-On Saving**
+- **Removed User Toggle**: No more "Save metadata" checkbox - always enabled
+- **Comprehensive Data**: Includes generation parameters, timing metrics, LoRA configurations
+- **Queue Preservation**: Metadata maintained through batch processing
+- **Database Storage**: All metadata stored in SQLite for persistent access
+
+#### **Metadata Contents**
+- Generation parameters (prompt, model, steps, guidance, dimensions)
+- Performance timing (total time, model execution time)
+- LoRA configurations and scales
+- Tool-specific settings (quantization, ControlNet parameters)
+- Timestamp and processing information
 
 ## 🎨 Image Generation
 

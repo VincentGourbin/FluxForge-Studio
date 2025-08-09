@@ -60,7 +60,8 @@ fluxforge-studio/
 
 - **`database.py`**: Database operations and image history
   - SQLite database initialization and schema
-  - Image metadata storage and retrieval
+  - Image metadata storage and retrieval with **automatic metadata saving**
+  - **Performance timing integration**: Storage of total and model execution times
   - Gallery synchronization with filesystem
   - History management functions
   - LoRA metadata management (migrated from JSON)
@@ -92,14 +93,16 @@ fluxforge-studio/
   - ControlNet support with Canny edge detection
   - Memory management and optimization
   - 8-bit quantization support with optimum.quanto
+  - **Comprehensive timing system**: Dual timing measurements (total and model execution)
 
 - **`qwen_generator.py`**: Qwen-Image generation class
   - Qwen-Image model loading and caching with diffusers
-  - LoRA integration compatible with diffusers pipeline
+  - LoRA integration compatible with diffusers pipeline (**fixed LoRA data structure handling**)
   - Negative prompt support for enhanced control
   - True CFG Scale implementation
   - 8-bit quantization using optimum.quanto
   - Custom progress tracking with tqdm interception
+  - **Comprehensive timing system**: Dual timing measurements (total and model execution)
 
 #### Key Features:
 - Model caching to prevent unnecessary reloads across both model types
@@ -109,6 +112,16 @@ fluxforge-studio/
 - Support for multiple model variants: FLUX.1 (schnell, dev, krea-dev) and Qwen-Image
 - Adaptive UI system that adjusts interface based on selected model
 - Queue system integration for both FLUX.1 and Qwen-Image tasks
+
+#### Performance Timing System:
+- **Dual Timing Architecture**: Two complementary timing measurements
+  - **Total Generation Time**: End-to-end timing from function entry to image save completion
+  - **Model Execution Time**: Pure pipeline execution timing around `pipeline()` calls
+- **Cross-Model Implementation**: Available for both FLUX.1 and Qwen-Image generators
+- **Console Output**: Real-time timing display (e.g., `⏱️ Generation completed in 15.2s (model: 14.8s)`)
+- **Database Integration**: All timing data automatically saved to metadata for historical analysis
+- **Queue Preservation**: Timing information maintained through queue processing system
+- **High Precision**: Timing measurements rounded to 2 decimal places for clean display
 
 ---
 
@@ -194,6 +207,7 @@ fluxforge-studio/
   - Image dimension controls with validation
   - Standardized buttons and inputs
   - Tool selection modals and interfaces
+  - **Streamlined metadata handling**: Removed user metadata toggle (always saved)
 
 - **`lora_manager.py`**: Comprehensive LoRA management interface
   - Dynamic LoRA selection with modal interface
@@ -377,6 +391,31 @@ The professional platform provides comprehensive FLUX.1 model integration:
 - **Data Preservation**: Compatible with existing LoRA files and image history
 - **Database Migration**: Automatic schema updates with data preservation
 
+## Latest Architectural Improvements
+
+### Performance Timing System (Latest Update)
+- **Technical Implementation**: Added dual timing measurements to both FLUX.1 and Qwen-Image generators
+  - `time.time()` measurements around pipeline execution for model timing
+  - Total timing from function start to image save completion
+  - Database schema extension to store timing data in metadata JSON
+  - Queue system integration to preserve timing through task processing
+- **Data Flow**: Timing information flows from generators → queue processing → database storage
+- **User Experience**: Console feedback provides immediate performance metrics
+
+### Automatic Metadata Management
+- **Architecture Change**: Removed user-controlled metadata toggle from UI components
+- **Database Integration**: All generations now automatically save comprehensive metadata
+- **Backward Compatibility**: Existing database entries maintain full compatibility
+- **Simplification**: Streamlined metadata handling reduces UI complexity
+
+### Qwen-Image LoRA Integration Fix
+- **Data Structure Fix**: Corrected LoRA parameter extraction in queue processing
+  - Fixed mapping from UI state `{'name': 'filename.safetensors'}` to file paths
+  - Added proper path construction for `lora/` directory
+  - Enhanced error handling and debug logging for LoRA processing
+- **Cross-Model Consistency**: Unified LoRA handling approach between FLUX.1 and Qwen-Image
+- **Queue Processing**: Improved parameter isolation and deep copy protection
+
 ## Troubleshooting
 
 ### Common Issues:
@@ -384,11 +423,14 @@ The professional platform provides comprehensive FLUX.1 model integration:
 2. **Model Loading**: Check device compatibility and available memory
 3. **LoRA Issues**: Verify `lora_info.json` format and file paths
 4. **Database Errors**: Check write permissions for `generated_images.db`
+5. **Timing Data**: Check console output for timing measurements (should appear for all generations)
+6. **Qwen-Image LoRA**: Verify LoRA files are properly detected (debug output shows LoRA processing)
 
 ### Debug Mode:
 - Use `python -v main.py` for verbose import information
-- Check console output for detailed error messages
+- Check console output for detailed error messages and timing data
 - Monitor memory usage during generation operations
+- Look for debug messages starting with `🔍` and `🎯` for LoRA processing details
 
 ---
 

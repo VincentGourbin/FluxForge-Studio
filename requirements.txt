@@ -17,6 +17,8 @@ git+https://github.com/huggingface/diffusers.git
 pillow>=9.0.0
 opencv-python>=4.5.0
 numpy>=1.21.0
+kornia>=0.6.0
+timm>=0.9.0
 
 # AI enhancement
 ollama>=0.1.0

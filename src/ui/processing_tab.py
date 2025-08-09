@@ -604,7 +604,7 @@ def get_task_details(evt: gr.SelectData) -> str:
         return f"Error getting task details: {e}"
 
 
-def setup_processing_tab_events(components: Dict[str, Any], image_generator, modelbgrm):
+def setup_processing_tab_events(components: Dict[str, Any], image_generator, modelbgrm, demo=None):
     """Set up event handlers for the processing tab."""
     
     # Main control buttons
@@ -642,6 +642,20 @@ def setup_processing_tab_events(components: Dict[str, Any], image_generator, mod
             components['memory_display']
         ]
     )
+    
+    # Auto-refresh when tab is selected (similar to History tab)
+    if demo is not None:
+        # Initial load when the interface starts
+        demo.load(
+            fn=refresh_all,
+            outputs=[
+                components['status_display'],
+                components['queue_stats_html'],
+                components['pending_tasks_dataframe'],
+                components['current_task_display'],
+                components['memory_display']
+            ]
+        )
     
     
     # Task selection and removal with auto-refresh

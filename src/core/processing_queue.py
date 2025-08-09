@@ -524,14 +524,32 @@ class ProcessingQueue:
         
         lora_state = params.get('lora_state')
         if lora_state:
+            print(f"🔍 Debug: LoRA state received: {lora_state}")
             strengths = [params.get('lora_strength_1', 0.8), 
                         params.get('lora_strength_2', 0.8), 
                         params.get('lora_strength_3', 0.8)]
+            print(f"🔍 Debug: LoRA strengths: {strengths}")
             
             for i, selected_lora in enumerate(lora_state):
-                if i < len(strengths) and selected_lora.get('file_path'):
-                    lora_paths.append(selected_lora['file_path'])
-                    lora_scales.append(strengths[i] if strengths[i] is not None else 0.8)
+                print(f"🔍 Debug: Processing LoRA {i}: {selected_lora}")
+                if i < len(strengths):
+                    # Get LoRA filename and construct full path
+                    file_path = None
+                    if isinstance(selected_lora, dict):
+                        # The structure is: {"id": "lora_0", "name": "filename.safetensors", ...}
+                        filename = selected_lora.get('name')
+                        if filename:
+                            file_path = f"lora/{filename}" if not filename.startswith('lora/') else filename
+                    elif isinstance(selected_lora, str):
+                        file_path = f"lora/{selected_lora}" if not selected_lora.startswith('lora/') else selected_lora
+                    
+                    if file_path:
+                        print(f"🔍 Debug: Adding LoRA path: {file_path} with scale: {strengths[i]}")
+                        lora_paths.append(file_path)
+                        lora_scales.append(strengths[i] if strengths[i] is not None else 0.8)
+        
+        print(f"🎯 Final LoRA paths for Qwen: {lora_paths}")
+        print(f"🎯 Final LoRA scales for Qwen: {lora_scales}")
         
         # Create progress callback to update task progress (using tqdm interception)
         def progress_callback(step: int, timestep: int = 0, latents=None):
@@ -544,7 +562,7 @@ class ProcessingQueue:
             task.description = f"🎨 Qwen: Step {step}/{total_steps} - {params.get('prompt', '')[:40]}..."
         
         # Call Qwen generator with progress tracking
-        image, status = qwen_generator.generate_image(
+        result = qwen_generator.generate_image(
             prompt=params['prompt'],
             negative_prompt=params.get('negative_prompt', ''),
             width=params['width'],
@@ -558,6 +576,14 @@ class ProcessingQueue:
             quantization=params.get('quantization', 'None'),
             progress_callback=progress_callback
         )
+        
+        # Handle return format (image, status, timing_info)
+        if len(result) == 3:
+            image, status, timing_info = result
+        else:
+            # Fallback for older format
+            image, status = result
+            timing_info = None
         
         if image is None:
             raise RuntimeError(f"Qwen generation failed: {status}")
@@ -592,6 +618,10 @@ class ProcessingQueue:
         
         # Save to database for History tab
         try:
+            # Extract timing information if available
+            total_time = timing_info.get('total_generation_time') if timing_info else None
+            model_time = timing_info.get('model_generation_time') if timing_info else None
+            
             save_standard_generation(
                 timestamp=timestamp_str,
                 seed=params['seed'],
@@ -604,7 +634,9 @@ class ProcessingQueue:
                 lora_paths=lora_paths,
                 lora_scales=lora_scales,
                 output_filename=str(output_path),
-                negative_prompt=params.get('negative_prompt', '')
+                negative_prompt=params.get('negative_prompt', ''),
+                total_generation_time=total_time,
+                model_generation_time=model_time
             )
             print(f"✅ Qwen image saved to database: {filename}")
         except Exception as db_error:

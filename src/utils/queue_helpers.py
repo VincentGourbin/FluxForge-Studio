@@ -26,7 +26,6 @@ def queue_standard_generation(
     quantization: str,
     steps: int,
     seed: int,
-    metadata: bool,
     guidance: float,
     height: int,
     width: int,
@@ -60,7 +59,7 @@ def queue_standard_generation(
         'quantization': quantization,
         'steps': steps,
         'seed': seed,
-        'metadata': metadata,
+        'metadata': True,  # Always save metadata
         'guidance': guidance,
         'height': height,
         'width': width,

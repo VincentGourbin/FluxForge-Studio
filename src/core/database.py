@@ -146,7 +146,8 @@ def save_image_info(details):
     pass
 
 def save_standard_generation(timestamp, seed, prompt, model_alias, steps, guidance, 
-                           height, width, lora_paths, lora_scales, output_filename, negative_prompt=None):
+                           height, width, lora_paths, lora_scales, output_filename, negative_prompt=None,
+                           total_generation_time=None, model_generation_time=None):
     """
     Save standard text-to-image generation to database.
     """
@@ -165,6 +166,12 @@ def save_standard_generation(timestamp, seed, prompt, model_alias, steps, guidan
     # Add negative_prompt if provided (for Qwen-Image)
     if negative_prompt:
         metadata['negative_prompt'] = negative_prompt
+    
+    # Add generation timing information if provided
+    if total_generation_time is not None:
+        metadata['total_generation_time'] = round(total_generation_time, 2)
+    if model_generation_time is not None:
+        metadata['model_generation_time'] = round(model_generation_time, 2)
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()

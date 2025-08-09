@@ -80,8 +80,7 @@ from ui.components import (
     create_image_editor_component,
     create_preview_image,
     create_output_image,
-    create_generation_button,
-    create_metadata_checkbox
+    create_generation_button
 )
 from ui.lora_manager import (
     create_lora_manager_interface,
@@ -142,7 +141,7 @@ def show_image_details(evt: gr.SelectData):
     details_text = get_image_details(index)
     return details_text, index
 
-def generate_image_wrapper(prompt, model_alias, quantization, steps, seed, metadata, guidance, height, width, 
+def generate_image_wrapper(prompt, model_alias, quantization, steps, seed, guidance, height, width, 
                          lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
     """Wrapper function to adapt new LoRA state system to old ImageGenerator interface."""
     
@@ -177,7 +176,7 @@ def generate_image_wrapper(prompt, model_alias, quantization, steps, seed, metad
         model_alias,              # model_alias
         steps,                    # steps
         seed,                     # seed
-        metadata,                 # metadata
+        True,                     # metadata - always save metadata
         guidance,                 # guidance
         height,                   # height
         width,                    # width
@@ -239,7 +238,6 @@ def create_main_interface():
                     minimum=1
                 )
                 seed = create_seed_control()
-                metadata = create_metadata_checkbox()
 
             # Guidance parameter (conditionally visible)
             with gr.Row():
@@ -283,7 +281,7 @@ def create_main_interface():
             generate_btn.click(
                 fn=queue_standard_generation,
                 inputs=[
-                    prompt, negative_prompt, model_alias, quantization, steps, seed, metadata, guidance, height, width,
+                    prompt, negative_prompt, model_alias, quantization, steps, seed, guidance, height, width,
                     lora_components['state'], lora_components['strength_1'], 
                     lora_components['strength_2'], lora_components['strength_3']
                 ],
@@ -803,9 +801,9 @@ def create_main_interface():
         # ==============================================================================
         # TAB 3: PROCESSING
         # ==============================================================================
-        with gr.Tab("Processing"):
+        with gr.Tab("Processing") as processing_tab:
             processing_components = create_processing_tab()
-            setup_processing_tab_events(processing_components, image_generator, modelbgrm)
+            setup_processing_tab_events(processing_components, image_generator, modelbgrm, demo)
 
         # ==============================================================================
         # TAB 4: PROMPT ENHANCER
@@ -1168,6 +1166,33 @@ def create_main_interface():
             ]
         )
         
+        # ==============================================================================
+        # PROCESSING TAB AUTO-REFRESH ON LOAD
+        # ==============================================================================
+        # Refresh Processing tab data immediately when the tab is selected
+        def refresh_processing_on_load():
+            """Refresh processing data when tab is selected."""
+            try:
+                from ui.processing_tab import update_queue_status, update_current_task
+                (status_msg, stats_html, dataframe_rows, dataframe_visible) = update_queue_status()
+                current_desc, memory_text = update_current_task()
+                dataframe_update = gr.update(value=dataframe_rows, visible=dataframe_visible)
+                return (status_msg, stats_html, dataframe_update, current_desc, memory_text)
+            except Exception as e:
+                # Return empty/default values on error
+                return ("⚠️ Error loading processing data", "", gr.update(value=[], visible=False), "No data", "No data")
+        
+        # Set up tab selection event for Processing tab
+        processing_tab.select(
+            fn=refresh_processing_on_load,
+            outputs=[
+                processing_components['status_display'],
+                processing_components['queue_stats_html'],
+                processing_components['pending_tasks_dataframe'],
+                processing_components['current_task_display'],
+                processing_components['memory_display']
+            ]
+        )
 
     return demo
 

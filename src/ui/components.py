@@ -373,14 +373,3 @@ def create_tool_selector_modal(tool_types, available_choices):
     
     return components
 
-def create_metadata_checkbox():
-    """
-    Create metadata preservation checkbox.
-    
-    Returns:
-        gr.Checkbox: Metadata checkbox component
-    """
-    return gr.Checkbox(
-        label="Save Metadata",
-        value=True
-    )

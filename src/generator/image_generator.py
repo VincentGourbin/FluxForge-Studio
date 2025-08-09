@@ -19,6 +19,7 @@ License: MIT
 import os
 import datetime
 import random
+import time
 import torch
 import gc
 import warnings
@@ -422,6 +423,9 @@ class ImageGenerator:
             print(f"⚠️  Quantification disponible pour FLUX Schnell, Dev et Krea-dev uniquement")
             print("🔄 Continuons sans quantification...")
 
+        # Start timing for total generation time
+        total_start_time = time.time()
+        
         # Generate timestamp for file naming and database storage
         timestamp = datetime.datetime.now()
         timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
@@ -458,6 +462,7 @@ class ImageGenerator:
                 control_image.save(str(canny_filename))
             
             # ControlNet-guided generation using preprocessed image
+            model_start_time = time.time()
             image = flux_pipeline(
                 prompt=generation_prompt,
                 control_image=control_image,
@@ -468,11 +473,14 @@ class ImageGenerator:
                 width=target_width,
                 generator=generator
             ).images[0]
+            model_end_time = time.time()
+            model_generation_time = model_end_time - model_start_time
         elif use_flux_tools and flux_tools_image_path:
             # Load input image for FLUX Tools
             input_image = load_image(flux_tools_image_path)
             
             # FLUX Tools (Kontext) generation using input image and edit prompt
+            model_start_time = time.time()
             image = flux_pipeline(
                 image=input_image,
                 prompt=prompt,
@@ -482,6 +490,8 @@ class ImageGenerator:
                 width=width,
                 generator=generator
             ).images[0]
+            model_end_time = time.time()
+            model_generation_time = model_end_time - model_start_time
         else:
             # Standard text-to-image generation with progress tracking
             print(f"🎨 Starting {model_alias} generation with progress tracking...")
@@ -493,6 +503,7 @@ class ImageGenerator:
                 global_progress_tracker.apply_tqdm_patches()
                 
                 try:
+                    model_start_time = time.time()
                     image = flux_pipeline(
                         prompt=prompt,
                         num_inference_steps=steps,
@@ -501,12 +512,15 @@ class ImageGenerator:
                         width=width,
                         generator=generator
                     ).images[0]
+                    model_end_time = time.time()
+                    model_generation_time = model_end_time - model_start_time
                 finally:
                     # Always restore patches after generation
                     global_progress_tracker.remove_tqdm_patches()
                     print(f"✅ {model_alias} generation completed with progress tracking")
             else:
                 # Standard generation without progress tracking for other models
+                model_start_time = time.time()
                 image = flux_pipeline(
                     prompt=prompt,
                     num_inference_steps=steps,
@@ -515,12 +529,21 @@ class ImageGenerator:
                     width=width,
                     generator=generator
                 ).images[0]
+                model_end_time = time.time()
+                model_generation_time = model_end_time - model_start_time
 
+        # Calculate total generation time
+        total_end_time = time.time()
+        total_generation_time = total_end_time - total_start_time
+        
         # Save the generated image to disk
         image.save(str(output_filename))
         
         # Clean up memory after generation
         self._cleanup_memory()
+        
+        # Print timing information
+        print(f"⏱️ Generation completed in {total_generation_time:.2f}s (model: {model_generation_time:.2f}s)")
     
         # Store generation parameters and results in database for history tracking
         if use_controlnet:
@@ -553,7 +576,9 @@ class ImageGenerator:
                 width,
                 lora_paths_list,
                 lora_scales_list,
-                str(output_filename)
+                str(output_filename),
+                total_generation_time=total_generation_time,
+                model_generation_time=model_generation_time
             )
     
         # Return PIL Image object for Gradio display

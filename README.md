@@ -37,8 +37,9 @@ A comprehensive web-based interface for FLUX.1 and Qwen-Image generation with ad
 
 ### 📊 History & Management
 - **SQLite Database**: Persistent storage of all image operations and LoRA models
-- **Complete Metadata**: Tracks generation parameters, tools used, and settings
-- **Gallery View**: Visual browsing of generated images with detailed information
+- **Complete Metadata**: Tracks generation parameters, tools used, and settings with **automatic metadata saving**
+- **Performance Metrics**: Built-in timing measurements tracking both **total generation time** (end-to-end) and **pure model execution time**
+- **Gallery View**: Visual browsing of generated images with detailed information and timing data
 - **LoRA Management**: Dedicated interface for uploading, editing, and managing LoRA models
 - **HuggingFace Cache Management**: Integrated cache viewer and cleanup with selective deletion
 - **Comprehensive Logging**: Detailed console output for debugging and monitoring
@@ -266,10 +267,26 @@ The application automatically detects and uses:
 - **Stability**: Conservative implementation using only tested qint8 quantization
 - **Fallback**: Graceful degradation if quantization fails
 
+### Performance Monitoring & Timing
+- **Dual Timing System**: Comprehensive timing measurements for all generation types
+  - **Total Generation Time**: End-to-end timing from function start to image save
+  - **Model Execution Time**: Pure pipeline execution time for performance analysis
+- **Console Output**: Real-time timing display (e.g., `⏱️ Generation completed in 15.2s (model: 14.8s)`)
+- **Metadata Integration**: All timing data automatically saved to database for historical analysis
+- **Cross-Model Support**: Timing measurements available for both FLUX.1 and Qwen-Image generations
+- **Queue Integration**: Timing data preserved through queue processing system
+
+### Automatic Metadata Management
+- **Always-On Saving**: Metadata automatically saved for all generations (no user toggle required)
+- **Comprehensive Data**: Includes generation parameters, timing metrics, LoRA configurations, and tool settings
+- **Database Integration**: All metadata stored in SQLite for persistent access
+- **Backward Compatibility**: Existing generations maintain full metadata support
+
 ### Logging System
 - **Detailed Parameters**: All generation settings logged
 - **Tool Information**: Complete tool configuration tracking
 - **Clean Output**: Essential information without debug clutter
+- **Performance Metrics**: Timing information displayed for every generation
 
 ## 🐛 Troubleshooting
 
@@ -299,7 +316,17 @@ The application automatically detects and uses:
 
 ## 🎯 Key Updates
 
-### Recent Improvements
+### Recent Improvements (Latest Update)
+- **Performance Timing System**: Comprehensive timing measurements for all generations
+  - **Dual Timing Metrics**: Total generation time (end-to-end) and pure model execution time
+  - **Automatic Integration**: Timing data automatically saved to metadata and database
+  - **Console Display**: Real-time timing information during generation
+  - **Cross-Model Support**: Available for both FLUX.1 and Qwen-Image generations
+- **Automatic Metadata Saving**: Removed user toggle, metadata now always saved for all generations
+- **Qwen-Image LoRA Fix**: Resolved critical bug preventing LoRA models from loading with Qwen-Image generations
+- **Enhanced Database Schema**: Extended metadata structure to include timing information
+
+### Previous Major Improvements
 - **Qwen-Image Integration**: Full integration of Qwen-Image model with adaptive UI, LoRA support, and quantization
 - **Unified Content Creation**: Single interface supporting both FLUX.1 and Qwen-Image with model-specific controls
 - **Adaptive UI System**: Interface automatically adapts based on selected model (negative prompt for Qwen-Image, True CFG Scale)
@@ -333,6 +360,9 @@ The application automatically detects and uses:
 - **Low**: Optional Ollama dependencies
 
 ### Completed ✅
+- **Performance Timing System**: Comprehensive dual timing measurements with automatic metadata integration
+- **Automatic Metadata Saving**: Streamlined metadata management with always-on saving
+- **Qwen-Image LoRA Support**: Full LoRA compatibility for Qwen-Image generations
 - **Qwen-Image Integration**: Complete integration with adaptive UI, LoRA support, quantization, and queue processing
 - **Batch Processing System**: Complete queue implementation with memory monitoring
 - **8-bit Quantization**: Memory optimization with optimum.quanto for all models

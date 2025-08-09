@@ -18,6 +18,7 @@ License: MIT
 import torch
 import gc
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from diffusers import DiffusionPipeline
@@ -254,6 +255,9 @@ class QwenImageGenerator:
         if lora_scales is None:
             lora_scales = []
         
+        print(f"🎯 QwenImageGenerator received LoRA paths: {lora_paths}")
+        print(f"🎯 QwenImageGenerator received LoRA scales: {lora_scales}")
+        
         # Check if we need to reload pipeline (LoRA or quantization changed)
         need_reload = (
             self.pipeline is None or 
@@ -312,6 +316,9 @@ class QwenImageGenerator:
                 print("   Continuing without LoRA...")
                 self.current_lora_paths = []
                 self.current_lora_scales = []
+        
+        # Start timing for total generation time
+        total_start_time = time.time()
         
         try:
             # Use prompt directly - removed magic prompt enhancement
@@ -397,17 +404,27 @@ class QwenImageGenerator:
                     # Apply monkey patch
                     tqdm.__init__ = tqdm_with_callback
                     
-                    # Run pipeline
+                    # Run pipeline with timing
+                    model_start_time = time.time()
                     result = self.pipeline(**pipeline_args)
+                    model_end_time = time.time()
+                    model_generation_time = model_end_time - model_start_time
                     
                 finally:
                     # Restore original tqdm
                     if original_tqdm is not None:
                         tqdm.__init__ = original_tqdm
             else:
+                model_start_time = time.time()
                 result = self.pipeline(**pipeline_args)
+                model_end_time = time.time()
+                model_generation_time = model_end_time - model_start_time
             
             image = result.images[0]
+            
+            # Calculate total generation time
+            total_end_time = time.time()
+            total_generation_time = total_end_time - total_start_time
             
             # Save image
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -424,13 +441,20 @@ class QwenImageGenerator:
                     torch.mps.empty_cache()
                 gc.collect()
             
+            # Print timing information
+            print(f"⏱️ Generation completed in {total_generation_time:.2f}s (model: {model_generation_time:.2f}s)")
             print(f"✅ Image generated successfully: {filename}")
-            return image, f"✅ Image generated successfully: {filename}"
+            
+            # Return image, status message, and timing information
+            return image, f"✅ Image generated successfully: {filename}", {
+                'total_generation_time': total_generation_time,
+                'model_generation_time': model_generation_time
+            }
             
         except Exception as e:
             error_msg = f"❌ Generation failed: {str(e)}"
             print(error_msg)
-            return None, error_msg
+            return None, error_msg, None
     
     def unload_pipeline(self):
         """Unload pipeline and free memory."""
