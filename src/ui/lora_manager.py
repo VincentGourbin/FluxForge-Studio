@@ -99,15 +99,68 @@ def show_lora_modal():
 def refresh_lora_dropdown_choices(lora_data):
     """
     Refresh the choices in the LoRA dropdown.
-    
+
     Args:
         lora_data (list): Updated LoRA data
-        
+
     Returns:
         gr.update: Updated dropdown choices
     """
     choices = [f"{lora['file_name']} - {lora['description']}" for lora in lora_data] if lora_data else []
     return gr.update(choices=choices)
+
+
+def filter_lora_by_model(lora_data, model_id):
+    """
+    Filter LoRA data by model compatibility.
+
+    Args:
+        lora_data (list): Full LoRA data list
+        model_id (str): Model ID to filter by ('flux1-schnell' or 'flux2-dev')
+
+    Returns:
+        list: Filtered LoRA data compatible with the specified model
+    """
+    if not lora_data:
+        return []
+
+    filtered = []
+    for lora in lora_data:
+        compatible_models = lora.get('compatible_models', [])
+        # Include if model is compatible, or if no compatibility info (legacy)
+        if model_id in compatible_models or not compatible_models:
+            filtered.append(lora)
+
+    return filtered
+
+
+def get_lora_dropdown_choices_for_mode(lora_data, generation_mode):
+    """
+    Get LoRA dropdown choices filtered by generation mode.
+
+    Args:
+        lora_data (list): Full LoRA data list
+        generation_mode (str): Current generation mode from UI
+
+    Returns:
+        gr.update: Updated dropdown choices filtered by compatible model
+    """
+    # Determine model ID based on generation mode
+    if generation_mode == "⚡ Quick Mode (schnell 4-step)":
+        model_id = "flux1-schnell"
+    elif generation_mode == "🚀 Z-Image-Turbo (fast)":
+        model_id = "zimage-turbo"
+    else:
+        # All other modes (Text-to-Image, Image-to-Image) use FLUX.2-dev
+        model_id = "flux2-dev"
+
+    # Filter LoRAs by compatibility
+    filtered_lora = filter_lora_by_model(lora_data, model_id)
+
+    # Generate choices
+    choices = [f"{lora['file_name']} - {lora['description']}" for lora in filtered_lora] if filtered_lora else []
+
+    return gr.update(choices=choices, value=None)
 
 def hide_lora_modal():
     """Hide the LoRA selection modal."""

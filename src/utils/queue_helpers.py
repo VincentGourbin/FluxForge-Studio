@@ -34,25 +34,8 @@ def queue_standard_generation(
     lora_strength_2: float,
     lora_strength_3: float
 ) -> str:
-    """Add a standard image generation task to the queue (FLUX or Qwen)."""
-    
-    # Route to Qwen if qwen-image is selected
-    if model_alias == "qwen-image":
-        return queue_qwen_generation(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            width=width,
-            height=height,
-            steps=steps,
-            guidance_scale=guidance,
-            seed=seed,
-            lora_state=lora_state,
-            lora_strength_1=lora_strength_1,
-            lora_strength_2=lora_strength_2,
-            lora_strength_3=lora_strength_3,
-            quantization=quantization
-        )
-    
+    """Add a standard image generation task to the queue (FLUX models)."""
+
     parameters = {
         'prompt': prompt,
         'model_alias': model_alias,
@@ -258,72 +241,175 @@ def queue_background_removal(input_image: Any) -> str:
 
 def queue_upscaling(input_image: Any, upscale_factor: float, quantization: str = "None") -> str:
     """Add an upscaling task to the queue."""
-    
+
     parameters = {
         'input_image': input_image,
         'upscale_factor': upscale_factor,
         'quantization': quantization
     }
-    
+
     quant_part = f"Quantization: {quantization}" if quantization != "None" else ""
     description_parts = [f"{upscale_factor}x scale enhancement", quant_part]
     description = f"Upscaling: {', '.join(filter(None, description_parts))}"
-    
+
     task_id = processing_queue.add_task(TaskType.UPSCALING, parameters, description)
-    
+
     return f"✅ Added to queue: {description} (ID: {task_id[:8]})"
 
-def queue_qwen_generation(
-    prompt: str,
-    negative_prompt: str,
+
+def ensure_multiangles_lora() -> tuple:
+    """Ensure Multi-Angles LoRA is downloaded and registered.
+
+    Downloads the LoRA from HuggingFace if not present locally,
+    and registers it in the database if not already registered.
+
+    Returns:
+        tuple: (success: bool, message: str, lora_filename: str)
+    """
+    import os
+    from pathlib import Path
+
+    MULTIANGLES_LORA = "flux-multi-angles-v2-72poses-diffusers.safetensors"
+    MULTIANGLES_REPO = "VincentGOURBIN/flux_qint_8bit"
+    LORA_DIR = Path("lora")
+
+    # Ensure lora directory exists
+    LORA_DIR.mkdir(exist_ok=True)
+
+    lora_path = LORA_DIR / MULTIANGLES_LORA
+
+    # Step 1: Check if LoRA file exists locally
+    if not lora_path.exists():
+        print(f"📥 Multi-Angles LoRA not found locally. Downloading from HuggingFace...")
+        try:
+            from huggingface_hub import hf_hub_download
+
+            # Download the LoRA file
+            downloaded_path = hf_hub_download(
+                repo_id=MULTIANGLES_REPO,
+                filename=MULTIANGLES_LORA,
+                local_dir=str(LORA_DIR)
+            )
+            print(f"✅ Downloaded Multi-Angles LoRA to {lora_path}")
+
+        except Exception as e:
+            error_msg = f"Failed to download Multi-Angles LoRA: {e}"
+            print(f"❌ {error_msg}")
+            return False, error_msg, MULTIANGLES_LORA
+
+    # Step 2: Check if LoRA is registered in database
+    try:
+        from core.database import get_all_lora, add_lora
+
+        all_loras = get_all_lora()
+        lora_registered = any(l['file_name'] == MULTIANGLES_LORA for l in all_loras)
+
+        if not lora_registered:
+            print(f"📝 Registering Multi-Angles LoRA in database...")
+            success, msg, lora_id = add_lora(
+                file_name=MULTIANGLES_LORA,
+                description="Multi-Angles LoRA v2 - 72 camera positions (auto-installed)",
+                activation_keyword="<sks>",
+                compatible_models=["flux2-dev"]
+            )
+            if success:
+                print(f"✅ Multi-Angles LoRA registered in database (ID: {lora_id})")
+            else:
+                print(f"⚠️ Could not register LoRA: {msg}")
+
+    except Exception as e:
+        print(f"⚠️ Database registration check failed: {e}")
+
+    return True, "Multi-Angles LoRA ready", MULTIANGLES_LORA
+
+
+def queue_multiangles_generation(
+    composed_prompt: str,
+    reference_image: Any,
+    steps: int,
+    lora_scale: float,
     width: int,
     height: int,
-    steps: int,
-    guidance_scale: float,
     seed: int,
-    # Removed magic prompt parameters
-    lora_state: Any,
-    lora_strength_1: float,
-    lora_strength_2: float,
-    lora_strength_3: float,
-    quantization: str
+    quantization: str = "qint8"
 ) -> str:
-    """Add a Qwen-Image generation task to the queue."""
-    
-    # Validation prompt
-    if not prompt or not prompt.strip():
-        return "❌ Please enter a prompt"
-    
-    # Handle seed generation: 0 or None means generate random seed
-    if seed is None or int(seed) == 0:
-        import random
-        seed = random.randint(1, 2**32 - 1)
-    else:
-        seed = int(seed)
-    
+    """Add a Multi-Angles generation task using FLUX.2 with Multi-Angles LoRA.
+
+    This function queues a FLUX.2 generation with the Multi-Angles LoRA
+    pre-configured for controlled camera angle generation.
+    The LoRA is automatically downloaded and registered if not present.
+
+    Args:
+        composed_prompt: Full prompt with <sks> token and angle descriptors
+        reference_image: Reference image for the subject
+        steps: Number of inference steps
+        lora_scale: LoRA influence scale (0.5-1.0 recommended)
+        width: Output image width
+        height: Output image height
+        seed: Random seed (0 for random)
+        quantization: Quantization mode for FLUX.2 ("qint8" or "full")
+
+    Returns:
+        str: Queue feedback message
+    """
+    # Check if reference image is provided (required for Multi-Angles)
+    if reference_image is None:
+        return """**❌ Reference Image Required**
+
+Multi-Angles generation requires a reference image to maintain subject consistency across different camera angles.
+
+Please upload a reference image and try again.
+"""
+
+    # Ensure Multi-Angles LoRA is available (auto-download if needed)
+    success, message, lora_filename = ensure_multiangles_lora()
+
+    if not success:
+        return f"""**❌ Multi-Angles LoRA Not Available**
+
+{message}
+
+Please check your internet connection and try again.
+"""
+
+    # Multi-Angles always uses image-to-image mode
+    generation_mode = "image-to-image"
+
+    # Create LoRA state format expected by the queue
+    lora_state = [{'name': lora_filename}]
+
     parameters = {
-        'prompt': prompt,
-        'negative_prompt': negative_prompt,
+        'generation_mode': generation_mode,
+        'prompt': composed_prompt,
+        'steps': steps,
+        'guidance': 4.0,  # Recommended for Multi-Angles
+        'seed': seed,
         'width': width,
         'height': height,
-        'steps': steps,
-        'guidance_scale': guidance_scale,
-        'seed': seed,
-        # Removed magic prompt parameters
-        'lora_state': copy.deepcopy(lora_state),  # Deep copy to prevent UI interference
-        'lora_strength_1': lora_strength_1,
-        'lora_strength_2': lora_strength_2,
-        'lora_strength_3': lora_strength_3,
-        'quantization': quantization
+        'quantization': quantization,
+        'lora_state': copy.deepcopy(lora_state),
+        'lora_strength_1': lora_scale,
+        'lora_strength_2': 0.8,
+        'lora_strength_3': 0.8,
+        'reference_image': reference_image,
+        'variation_strength': 0.7  # Good default for multi-angles
     }
-    
-    # Generate description
-    prompt_part = f"Qwen: {prompt[:30]}..."
-    quant_part = f"Quantization: {quantization}" if quantization != "None" else ""
-    size_part = f"Size: {width}x{height}"
-    description_parts = [prompt_part, quant_part, size_part]
-    description = ', '.join(filter(None, description_parts))
-    
-    task_id = processing_queue.add_task(TaskType.QWEN_GENERATION, parameters, description)
-    
-    return f"✅ Added to queue: {description[:50]}... (ID: {task_id[:8]})"
+
+    description = f"Multi-Angles: {composed_prompt[:40]}..."
+
+    task_id = processing_queue.add_task(TaskType.FLUX2_GENERATION, parameters, description)
+
+    # Get queue stats
+    stats = processing_queue.get_stats()
+
+    return f"""**✅ Multi-Angles Task Added to Queue**
+
+**Task ID:** `{task_id[:8]}`
+**Prompt:** {composed_prompt}
+**LoRA Scale:** {lora_scale}
+
+**Queue Status:**
+- Pending: {stats['pending']}
+- Processing: {stats['processing']}
+- Completed: {stats['completed']}
+"""

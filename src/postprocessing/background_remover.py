@@ -2,26 +2,77 @@
 """
 Background removal module using RMBG-2.0 model.
 Provides functionality to remove backgrounds from images using AI-powered segmentation.
+
+The model is loaded lazily on first use to avoid startup delays and authentication
+errors when the model isn't needed.
 """
 
+import os
 import torch
 from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 from PIL import Image
 from core.config import device
 
+# Lazy-loaded singleton for background removal model
+_background_model = None
+_model_loading = False
+
+
+def get_hf_token():
+    """Get HuggingFace token from environment variable."""
+    return os.environ.get("HF_TOKEN")
+
+
 def load_background_removal_model():
     """
     Load and initialize the RMBG-2.0 background removal model.
-    
+    Uses HF_TOKEN from environment for gated repository access.
+
     Returns:
         AutoModelForImageSegmentation: Loaded and configured model ready for inference
     """
-    modelbgrm = AutoModelForImageSegmentation.from_pretrained('briaai/RMBG-2.0', trust_remote_code=True)
-    torch.set_float32_matmul_precision('high')
-    modelbgrm.to(device)
-    modelbgrm.eval()
-    return modelbgrm
+    global _background_model, _model_loading
+
+    # Return cached model if already loaded
+    if _background_model is not None:
+        return _background_model
+
+    # Prevent concurrent loading
+    if _model_loading:
+        import time
+        while _model_loading:
+            time.sleep(0.1)
+        return _background_model
+
+    _model_loading = True
+
+    try:
+        print("🔄 Loading RMBG-2.0 background removal model...")
+        hf_token = get_hf_token()
+
+        _background_model = AutoModelForImageSegmentation.from_pretrained(
+            'briaai/RMBG-2.0',
+            trust_remote_code=True,
+            token=hf_token
+        )
+        torch.set_float32_matmul_precision('high')
+        _background_model.to(device)
+        _background_model.eval()
+        print("✅ RMBG-2.0 model loaded successfully")
+        return _background_model
+    finally:
+        _model_loading = False
+
+
+def get_background_model():
+    """
+    Get the background removal model, loading it lazily if needed.
+
+    Returns:
+        AutoModelForImageSegmentation: The loaded model
+    """
+    return load_background_removal_model()
 
 # Image preprocessing configuration
 image_size = (1024, 1024)
@@ -31,24 +82,29 @@ transform_image = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # ImageNet normalization
 ])
 
-def remove_background(input_image, modelbgrm):
+def remove_background(input_image, modelbgrm=None):
     """
     Remove the background from an input image using the RMBG-2.0 model.
-    
+
     Args:
         input_image (PIL.Image): Input image to process
-        modelbgrm (AutoModelForImageSegmentation): Loaded background removal model
-        
+        modelbgrm (AutoModelForImageSegmentation, optional): Loaded background removal model.
+            If None, the model will be loaded lazily.
+
     Returns:
         PIL.Image: Image with background removed (transparent background)
     """
     import datetime
     import random
     from pathlib import Path
-    
+
+    # Lazy load model if not provided
+    if modelbgrm is None:
+        modelbgrm = get_background_model()
+
     # Convert to RGB format
     image = input_image.convert("RGB")
-    
+
     # Apply preprocessing transformations
     input_images = transform_image(image).unsqueeze(0).to(device)
     

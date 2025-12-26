@@ -127,15 +127,24 @@ def create_model_selector(model_options, default_model="schnell"):
 def create_quantization_selector():
     """
     Create quantization selection dropdown with tested MPS compatibility.
-    
+
+    Options:
+    - qint8: Pre-quantized 8-bit transformer from VincentGOURBIN/flux_qint_8bit
+      FLUX.2: ~35GB (Transformer qint8 + Text Encoder full)
+      FLUX.1-schnell: ~15GB (Transformer qint8 + Text Encoder full)
+      Note: Text encoder quantization disabled due to dtype/compatibility issues
+    - full: Full precision from official Black Forest Labs repos
+      FLUX.2: ~115GB - Maximum quality
+      FLUX.1-schnell: ~25GB
+
     Returns:
         gr.Dropdown: Quantization selection dropdown
     """
     return gr.Dropdown(
         label="Quantization - Memory optimisation",
-        choices=["None", "8-bit"],
-        value="8-bit",
-        info="8-bit: ~70% memory reduction, None: no optimization"
+        choices=["qint8", "full"],
+        value="qint8",
+        info="qint8: Transformer quantized (35GB FLUX.2, 15GB schnell) | full: All full precision"
     )
 
 def create_controlnet_controls():

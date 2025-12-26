@@ -33,7 +33,16 @@ lora_directory = 'lora'
 # LoRA data is now managed in the database - see database.py for LoRA functions
 
 # Model options (no quantization needed with diffusers)
-model_options = ["schnell", "dev", "krea-dev", "qwen-image"]
+model_options = ["schnell", "dev", "krea-dev"]
+
+# LoRA Compatible Models - Central registry for dynamic UI generation
+# Format: {model_id: display_name}
+# To add a new model: simply add an entry here
+LORA_COMPATIBLE_MODELS = {
+    "flux1-schnell": "FLUX.1 Schnell",
+    "flux2-dev": "FLUX.2 Dev",
+    "zimage-turbo": "Z-Image-Turbo",
+}
 
 # ControlNet options
 controlnet_options = {

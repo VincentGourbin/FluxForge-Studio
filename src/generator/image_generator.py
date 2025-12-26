@@ -25,20 +25,43 @@ import gc
 import warnings
 import cv2
 import numpy as np
+
+# Suppress harmless dtype mismatch warning from quanto quantization
+warnings.filterwarnings("ignore", message="Mismatch dtype between input and weight")
+
 from pathlib import Path
 from typing import List, Optional, Callable, Any
 from PIL import Image
 
 from core import config
 from diffusers import FluxPipeline, FluxControlNetPipeline, FluxControlNetModel
+from diffusers.models import FluxTransformer2DModel
 try:
     from diffusers import FluxKontextPipeline
 except ImportError:
     print("Warning: FluxKontextPipeline not available in this diffusers version")
     FluxKontextPipeline = None
 from diffusers.utils import load_image
+from huggingface_hub import snapshot_download, list_repo_files
+from optimum.quanto import QuantizedDiffusersModel
 import gradio as gr
 from utils.progress_tracker import global_progress_tracker
+from utils.image_processing import cleanup_memory
+
+# Pre-quantized model repository (contains FLUX.2-dev and FLUX.1-schnell)
+QUANTO_REPO_ID = "VincentGOURBIN/flux_qint_8bit"
+SCHNELL_MODEL_SLUG = "flux-1-schnell"
+
+
+# Custom quantized model classes for loading pre-quantized FLUX.1 models
+class QuantizedFluxTransformer2DModel(QuantizedDiffusersModel):
+    """Quantized wrapper for FluxTransformer2DModel.
+
+    Note: Text encoder (T5) quantization is NOT used due to decoder_input_ids
+    errors. Only transformer is quantized.
+    """
+    base_class = FluxTransformer2DModel
+
 
 class ImageGenerator:
     """Core image generation class for FLUX.1 models with LoRA and ControlNet support.
@@ -123,6 +146,114 @@ class ImageGenerator:
             print(f"❌ Error refreshing LoRA data: {e}")
             # Keep existing data if refresh fails
 
+    def _check_lora_compatibility(self, lora_filename: str, model_alias: str) -> bool:
+        """Check if a LoRA is compatible with the specified model.
+
+        Args:
+            lora_filename: Name of the LoRA file
+            model_alias: Model alias ('schnell', 'dev', etc.)
+
+        Returns:
+            bool: True if compatible, False otherwise
+        """
+        # Map model alias to model ID
+        model_id_map = {
+            'schnell': 'flux1-schnell',
+            'dev': 'flux1-schnell',  # FLUX.1-dev uses same LoRAs as schnell
+            'krea-dev': 'flux1-schnell',  # FLUX.1-Krea-dev uses same LoRAs
+        }
+        model_id = model_id_map.get(model_alias, 'flux1-schnell')
+
+        # Find LoRA in loaded data
+        for lora_info in self.lora_data:
+            if lora_info['file_name'] == lora_filename:
+                compatible_models = lora_info.get('compatible_models', [])
+                # Check if model is in compatible models
+                if model_id in compatible_models:
+                    return True
+                # If no compatibility info, assume compatible (legacy behavior)
+                if not compatible_models:
+                    print(f"  ⚠️  LoRA '{lora_filename}' has no compatibility info, assuming compatible")
+                    return True
+                return False
+        # LoRA not found in database, assume compatible
+        return True
+
+    def _check_repo_has_component(self, repo_id: str, model_slug: str, component: str, quant_type: str) -> bool:
+        """Check if the HuggingFace repo has a specific quantized component."""
+        try:
+            files = list_repo_files(repo_id)
+            pattern = f"{model_slug}/{component}/{quant_type}/"
+            return any(f.startswith(pattern) for f in files)
+        except Exception:
+            return False
+
+    def _load_schnell_quantized(self, base_model_id: str):
+        """Load pre-quantized FLUX.1-schnell model from VincentGOURBIN/flux_qint_8bit.
+
+        Only transformer is quantized - T5 text encoder quantization causes errors
+        (decoder_input_ids required) due to AutoModel incompatibility.
+
+        Args:
+            base_model_id: Base model ID for loading non-quantized components
+
+        Returns:
+            FluxPipeline: Pipeline with pre-quantized transformer
+        """
+        print(f"📦 Loading pre-quantized qint8 FLUX.1-schnell from {QUANTO_REPO_ID}...")
+
+        # Check for available transformer
+        has_transformer = self._check_repo_has_component(
+            QUANTO_REPO_ID, SCHNELL_MODEL_SLUG, "transformer", "qint8"
+        )
+
+        if not has_transformer:
+            raise RuntimeError(f"No quantized transformer found in {QUANTO_REPO_ID}/{SCHNELL_MODEL_SLUG}")
+
+        # Only quantize transformer - T5 text encoder quantization causes errors
+        transformer_subpath = f"{SCHNELL_MODEL_SLUG}/transformer/qint8"
+        download_patterns = [f"{SCHNELL_MODEL_SLUG}/transformer/qint8/*"]
+
+        print(f"  📦 Transformer: {transformer_subpath}")
+        print(f"  📦 Text Encoder: full precision (T5 quantization causes errors)")
+
+        # Download quantized transformer
+        quant_path = snapshot_download(
+            QUANTO_REPO_ID,
+            allow_patterns=download_patterns
+        )
+        transformer_path = os.path.join(quant_path, transformer_subpath)
+
+        # Load base pipeline WITHOUT transformer only (keep T5 text encoder full precision)
+        print("📦 Loading base pipeline with full precision text encoder...")
+        try:
+            pipeline = FluxPipeline.from_pretrained(
+                base_model_id,
+                transformer=None,
+                torch_dtype=self.dtype,
+                use_safetensors=True,
+                local_files_only=True
+            )
+            print("  ✅ Loaded from local cache")
+        except Exception:
+            print("  ℹ️  Not in cache, downloading...")
+            pipeline = FluxPipeline.from_pretrained(
+                base_model_id,
+                transformer=None,
+                torch_dtype=self.dtype,
+                use_safetensors=True
+            )
+
+        # Load quantized transformer
+        print(f"📦 Loading quantized transformer...")
+        quantized_transformer = QuantizedFluxTransformer2DModel.from_pretrained(transformer_path)
+        quantized_transformer.to(self.device)
+        pipeline.transformer = quantized_transformer
+        print(f"  ✅ Transformer loaded (qint8)")
+
+        print("✅ Pre-quantized FLUX.1-schnell loaded (transformer qint8, text encoder full)")
+        return pipeline
+
     def generate_image(
         self,
         prompt,
@@ -149,7 +280,7 @@ class ImageGenerator:
         post_processing_type="None",
         post_processing_image_path=None,
         post_processing_multiplier=2.0,
-        quantization="None",
+        quantization="qint8",
         *args
     ):
         """Generate an image using FLUX.1 model with optional LoRA and ControlNet support.
@@ -272,41 +403,71 @@ class ImageGenerator:
                 model_id = model_id_map.get(model_alias, 'black-forest-labs/FLUX.1-schnell')
     
             # Initialize the appropriate pipeline type based on usage
+            # All loaders try local cache first to avoid re-downloading
             if use_controlnet:
                 # Load ControlNet model and pipeline
                 controlnet = FluxControlNetModel.from_pretrained(
                     controlnet_model_id,
                     torch_dtype=self.dtype
                 )
-                flux_pipeline = FluxControlNetPipeline.from_pretrained(
-                    model_id,
-                    controlnet=controlnet,
-                    torch_dtype=self.dtype,
-                    use_safetensors=True
-                )
+                try:
+                    flux_pipeline = FluxControlNetPipeline.from_pretrained(
+                        model_id,
+                        controlnet=controlnet,
+                        torch_dtype=self.dtype,
+                        use_safetensors=True,
+                        local_files_only=True
+                    )
+                except Exception:
+                    flux_pipeline = FluxControlNetPipeline.from_pretrained(
+                        model_id,
+                        controlnet=controlnet,
+                        torch_dtype=self.dtype,
+                        use_safetensors=True
+                    )
                 current_model_type = 'controlnet'
             elif use_flux_tools:
                 # Load FLUX Tools pipeline (e.g., Kontext for image editing)
                 if FluxKontextPipeline is None:
                     raise ValueError("FluxKontextPipeline not available. Please update diffusers library.")
-                flux_pipeline = FluxKontextPipeline.from_pretrained(
-                    flux_tools_model_id,
-                    torch_dtype=self.dtype,
-                    use_safetensors=True
-                )
+                try:
+                    flux_pipeline = FluxKontextPipeline.from_pretrained(
+                        flux_tools_model_id,
+                        torch_dtype=self.dtype,
+                        use_safetensors=True,
+                        local_files_only=True
+                    )
+                except Exception:
+                    flux_pipeline = FluxKontextPipeline.from_pretrained(
+                        flux_tools_model_id,
+                        torch_dtype=self.dtype,
+                        use_safetensors=True
+                    )
                 current_model_type = 'flux_tools'
             else:
                 # Load standard FLUX.1 pipeline for text-to-image generation
-                flux_pipeline = FluxPipeline.from_pretrained(
-                    model_id,
-                    torch_dtype=self.dtype,
-                    use_safetensors=True
-                )
+                # Check if we should use pre-quantized models for schnell
+                if model_alias == "schnell" and quantization == "qint8":
+                    flux_pipeline = self._load_schnell_quantized(model_id)
+                else:
+                    try:
+                        flux_pipeline = FluxPipeline.from_pretrained(
+                            model_id,
+                            torch_dtype=self.dtype,
+                            use_safetensors=True,
+                            local_files_only=True
+                        )
+                    except Exception:
+                        flux_pipeline = FluxPipeline.from_pretrained(
+                            model_id,
+                            torch_dtype=self.dtype,
+                            use_safetensors=True
+                        )
                 current_model_type = 'standard'
-    
+
             # Move pipeline to appropriate device
             flux_pipeline = flux_pipeline.to(self.device)
-            
+
             # Enable memory efficient attention
             flux_pipeline.enable_attention_slicing()
             
@@ -348,14 +509,20 @@ class ImageGenerator:
             if lora_paths_list:
                 adapter_names = []
                 adapter_weights = []
-                
+
                 for lora_path, lora_scale in zip(lora_paths_list, lora_scales_list):
                     if os.path.exists(lora_path):
                         # For local files, use the directory path and weight_name
                         lora_dir = os.path.dirname(lora_path)
                         lora_filename = os.path.basename(lora_path)
                         adapter_name = os.path.splitext(lora_filename)[0].replace('.', '_')
-                        
+
+                        # Check LoRA compatibility with current model
+                        if not self._check_lora_compatibility(lora_filename, model_alias):
+                            print(f"  ⚠️  Skipping LoRA '{lora_filename}': not compatible with FLUX.1-{model_alias}")
+                            print(f"      This LoRA was trained for a different model architecture.")
+                            continue
+
                         # Load LoRA with warning suppression and error handling
                         try:
                             with warnings.catch_warnings():
@@ -363,7 +530,7 @@ class ImageGenerator:
                                 warnings.filterwarnings("ignore", message=".*No LoRA keys associated to CLIPTextModel.*")
                                 warnings.filterwarnings("ignore", message=".*Already found a.*peft_config.*attribute.*")
                                 flux_pipeline.load_lora_weights(
-                                    lora_dir, 
+                                    lora_dir,
                                     weight_name=lora_filename,
                                     adapter_name=adapter_name
                                 )
@@ -377,7 +544,7 @@ class ImageGenerator:
                             print(f"❌ Erreur chargement LoRA: {lora_filename}")
                             print(f"   Erreur: {e}")
                             continue  # Skip this LoRA and continue with others
-                        
+
                         adapter_names.append(adapter_name)
                         adapter_weights.append(float(lora_scale))
                 
@@ -402,9 +569,10 @@ class ImageGenerator:
             self.current_lora_scales = lora_scales_list
     
         # Apply quantization AFTER LoRA loading to avoid parameter name conflicts
-        if quantization and quantization != "None" and model_alias in ["schnell", "dev"]:
+        # Note: For schnell with qint8, we already loaded pre-quantized models, so skip runtime quantization
+        if quantization and quantization not in ["None", "full", "qint8"] and model_alias in ["schnell", "dev"]:
             from utils.quantization import quantize_pipeline_components
-            
+
             # Tests confirment: seul qint8 fonctionne de manière stable
             if quantization in ["8-bit", "Auto"]:
                 print(f"🔧 Application quantification qint8 FLUX {model_alias} APRÈS LoRA")
@@ -419,7 +587,7 @@ class ImageGenerator:
             else:
                 print(f"⚠️  Quantification {quantization} non supportée")
                 print("🔄 Continuons sans quantification...")
-        elif quantization and quantization != "None" and model_alias not in ["schnell", "dev", "krea-dev"]:
+        elif quantization and quantization not in ["None", "full", "qint8"] and model_alias not in ["schnell", "dev", "krea-dev"]:
             print(f"⚠️  Quantification disponible pour FLUX Schnell, Dev et Krea-dev uniquement")
             print("🔄 Continuons sans quantification...")
 
@@ -675,9 +843,6 @@ class ImageGenerator:
         if model_alias in ["dev", "krea-dev"]:
             # Show guidance slider for dev and krea-dev models (CFG)
             return gr.update(visible=True, label="Guidance Scale - Controls prompt adherence", value=3.5)
-        elif model_alias == "qwen-image":
-            # Show True CFG Scale for Qwen-Image with different default value
-            return gr.update(visible=True, label="True CFG Scale - Qwen-Image guidance", value=4.0)
         else:
             # Hide guidance slider for other models
             return gr.update(visible=False)
@@ -698,9 +863,6 @@ class ImageGenerator:
         if model_alias in ["dev", "krea-dev"]:
             # Dev and krea-dev models work better with more steps
             return gr.update(value=25)
-        elif model_alias == "qwen-image":
-            # Qwen-Image default steps
-            return gr.update(value=50)
         else:
             # Schnell is optimized for fewer steps
             return gr.update(value=4)
@@ -714,9 +876,5 @@ class ImageGenerator:
         Returns:
             gr.update: Gradio update object to show/hide the negative prompt control
         """
-        if model_alias == "qwen-image":
-            # Show negative prompt for Qwen-Image
-            return gr.update(visible=True)
-        else:
-            # Hide negative prompt for FLUX models
-            return gr.update(visible=False)
+        # Always hide negative prompt - no models support it anymore
+        return gr.update(visible=False)

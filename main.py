@@ -30,83 +30,121 @@ import secrets
 import string
 from pathlib import Path
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Set PyTorch MPS fallback for Apple Silicon compatibility
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 
-# Filter out timm deprecation warnings  
+# Disable tokenizers parallelism warning (forking after parallelism)
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
+# Filter out warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="timm.*")
+
+# Suppress pkg_resources stderr warnings about multiple distributions
+# This filters the "Multiple distributions found for package optimum" message
+import io
+import contextlib
+
+class StderrFilter:
+    """Context manager to filter specific stderr messages."""
+    def __init__(self, filter_text):
+        self.filter_text = filter_text
+        self.old_stderr = None
+
+    def __enter__(self):
+        self.old_stderr = sys.stderr
+        sys.stderr = self
+        return self
+
+    def __exit__(self, *args):
+        sys.stderr = self.old_stderr
+
+    def write(self, text):
+        # Only write if the text doesn't contain the filter pattern
+        if self.filter_text not in text:
+            self.old_stderr.write(text)
+
+    def flush(self):
+        self.old_stderr.flush()
 
 # Add src directory to Python path for imports
 src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
-# Import Gradio
-import gradio as gr
+# Import Gradio and core modules with stderr filtering to suppress pkg_resources warnings
+with StderrFilter("Multiple distributions found for package"):
+    # Import Gradio
+    import gradio as gr
 
-# Import core modules
-from core.config import *
-from core.database import init_db, load_history, get_image_details, delete_image, sync_gallery_and_disk
+    # Import core modules
+    from core.config import *
+    from core.database import init_db, load_history, get_image_details, delete_image, sync_gallery_and_disk
 
-# Import generator
-from generator.image_generator import ImageGenerator
+    # Import generator
+    from generator.image_generator import ImageGenerator
 
-# Import post-processing modules
-from postprocessing.flux_fill import process_flux_fill, update_flux_fill_controls_visibility, update_flux_fill_mode_visibility, generate_flux_fill_preview
-from postprocessing.kontext import process_kontext
-from postprocessing.flux_depth import generate_depth_map, process_flux_depth
-from postprocessing.flux_canny import generate_canny_preview as flux_canny_preview, process_flux_canny
-from postprocessing.flux_redux import process_flux_redux
-from postprocessing.background_remover import load_background_removal_model, remove_background
-from postprocessing.upscaler import upscale_image
+    # Import post-processing modules
+    from postprocessing.flux_fill import process_flux_fill, update_flux_fill_controls_visibility, update_flux_fill_mode_visibility, generate_flux_fill_preview
+    from postprocessing.kontext import process_kontext
+    from postprocessing.flux_depth import generate_depth_map, process_flux_depth
+    from postprocessing.flux_canny import generate_canny_preview as flux_canny_preview, process_flux_canny
+    from postprocessing.flux_redux import process_flux_redux
+    from postprocessing.background_remover import remove_background
+    from postprocessing.upscaler import upscale_image
 
-# Import enhancement modules
-from enhancement.prompt_enhancer import (
-    enhance_prompt, 
-    update_image_input_visibility, 
-    update_button_label, 
-    model_names
-)
+    # Import enhancement modules
+    from enhancement.prompt_enhancer import (
+        enhance_prompt,
+        update_image_input_visibility,
+        update_button_label,
+        model_names
+    )
 
-# Import UI modules
-from ui.components import (
-    create_generation_parameters,
-    create_image_dimensions_controls,
-    create_seed_control,
-    create_prompt_input,
-    create_model_selector,
-    create_quantization_selector,
-    create_post_processing_selector,
-    create_expansion_controls,
-    create_image_editor_component,
-    create_preview_image,
-    create_output_image,
-    create_generation_button
-)
-from ui.lora_manager import (
-    create_lora_manager_interface,
-    setup_lora_events
-)
-# Qwen-Image is now integrated into Content Creation tab
+    # Import UI modules
+    from ui.components import (
+        create_generation_parameters,
+        create_image_dimensions_controls,
+        create_seed_control,
+        create_prompt_input,
+        create_model_selector,
+        create_quantization_selector,
+        create_post_processing_selector,
+        create_expansion_controls,
+        create_image_editor_component,
+        create_preview_image,
+        create_output_image,
+        create_generation_button
+    )
+    from ui.lora_manager import (
+        create_lora_manager_interface,
+        setup_lora_events,
+        get_lora_dropdown_choices_for_mode
+    )
+    # Qwen-Image is now integrated into Content Creation tab
 
-# Import utility modules
-from utils.image_processing import ensure_rgb_format, cleanup_memory, save_image_with_metadata
-from utils.mask_utils import extract_inpainting_mask_from_editor, create_outpainting_mask
-from utils.canny_processing import preprocess_canny, generate_canny_preview
-from utils.hf_cache_manager import refresh_hf_cache_for_gradio, delete_selected_hf_items
-from utils.queue_helpers import (
-    queue_standard_generation,
-    queue_flux_fill,
-    queue_kontext,
-    queue_flux_depth,
-    queue_flux_canny,
-    queue_flux_redux,
-    queue_background_removal,
-    queue_upscaling
-)
+    # Import utility modules
+    from utils.image_processing import ensure_rgb_format, cleanup_memory, save_image_with_metadata
+    from utils.mask_utils import extract_inpainting_mask_from_editor, create_outpainting_mask
+    from utils.canny_processing import preprocess_canny, generate_canny_preview
+    from utils.hf_cache_manager import refresh_hf_cache_for_gradio, delete_selected_hf_items
+    from utils.queue_helpers import (
+        queue_standard_generation,
+        queue_flux_fill,
+        queue_kontext,
+        queue_flux_depth,
+        queue_flux_canny,
+        queue_flux_redux,
+        queue_background_removal,
+        queue_upscaling,
+        queue_multiangles_generation
+    )
 
-# Import processing queue modules
-from core.processing_queue import processing_queue
-from ui.processing_tab import create_processing_tab, setup_processing_tab_events
+    # Import processing queue modules
+    from core.processing_queue import processing_queue
+    from ui.processing_tab import create_processing_tab, setup_processing_tab_events
 
 
 # Global constants
@@ -115,21 +153,22 @@ TEMP_IMAGES_DIR = "temp_images"
 def initialize_application():
     """Initialize all application components and dependencies."""
     print("🔄 Initializing FluxForge Studio...")
-    
+
     # Initialize database
     init_db()
-    
-    # Load background removal model
-    modelbgrm = load_background_removal_model()
-    
+
+    # Background removal model is now lazy-loaded on first use
+    # No need to load it at startup (saves time and avoids auth errors if not used)
+    modelbgrm = None
+
     # Initialize image generator
     image_generator = ImageGenerator()
-    
+
     # Create temporary directories
     os.makedirs(TEMP_IMAGES_DIR, exist_ok=True)
-    
+
     print("✅ FluxForge Studio initialized successfully!")
-    
+
     return modelbgrm, image_generator
 
 def show_image_details(evt: gr.SelectData):
@@ -207,595 +246,359 @@ def create_main_interface():
     # Initialize application components
     modelbgrm, image_generator = initialize_application()
     
-    with gr.Blocks(title="FluxForge Studio", theme=gr.themes.Glass()) as demo:
+    with gr.Blocks(title="FluxForge Studio") as demo:
         gr.Markdown("# 🎨 FluxForge Studio")
         gr.Markdown("**Professional AI Image Generation Platform** - Create, enhance, and refine images with FLUX.1 models and advanced post-processing tools.")
 
-        # ==============================================================================
-        # TAB 1: CONTENT CREATION
-        # ==============================================================================
-        with gr.Tab("Content Creation"):
-            gr.Markdown("## Image generation with advanced parameters")
-            
-            # Main prompt input
-            prompt = create_prompt_input("Prompt (image description)", 2, "Describe the image you want to generate...")
-            prompt.value = "Luxury food photograph"
-            
-            # Negative prompt (conditionally visible for Qwen-Image)
-            negative_prompt = create_prompt_input("Negative Prompt (Optional)", 2, "What you don't want in the image...")
-            negative_prompt.visible = False
 
-            gr.Markdown("### Main Parameters")
-            
-            # Primary generation parameters
+        # ==============================================================================
+        # TAB 1: GENERATION (FLUX.2 UNIFIED)
+        # ==============================================================================
+        with gr.Tab("Generation"):
+            gr.Markdown("## 🎨 FLUX.2 Multi-Modal Generation")
+            gr.Markdown("**Unified generation interface** - Text-to-image, image-to-image, inpainting, outpainting, depth/canny control, and multi-reference composition.")
+
+            # Import flux2 controls
+            from ui.flux2_controls import (
+                update_generation_mode_visibility,
+                generate_depth_preview,
+                generate_canny_preview,
+                generate_outpaint_preview,
+                extract_inpainting_mask_preview,
+                queue_flux2_generation
+            )
+
+            # ===== MODE SELECTOR (Primary Control) =====
+            generation_mode = gr.Dropdown(
+                label="Generation Mode",
+                choices=[
+                    "✨ Text-to-Image",
+                    "🔄 Image-to-Image",
+                    "🚀 Z-Image-Turbo (fast)"
+                ],
+                value="✨ Text-to-Image",
+                info="Select the type of generation you want to perform"
+            )
+
+            # ===== COMMON CONTROLS (Always Visible) =====
+            gr.Markdown("### Prompt & Settings")
+
+            prompt = create_prompt_input("Prompt", 3, "Describe the image you want to generate...")
+            prompt.value = "A serene mountain landscape at sunset"
+
             with gr.Row():
-                model_alias = create_model_selector(image_generator.model_options, "schnell")
-                quantization = create_quantization_selector()
-                steps = gr.Number(
-                    label="Inference steps - More steps = better quality but slower", 
-                    value=4, 
-                    precision=0, 
-                    minimum=1
+                steps = gr.Slider(
+                    label="Inference Steps",
+                    minimum=1,
+                    maximum=50,
+                    value=28,
+                    step=1,
+                    info="More steps = better quality but slower (28 recommended)"
                 )
+                guidance = gr.Slider(
+                    label="Guidance Scale",
+                    minimum=1.0,
+                    maximum=10.0,
+                    value=4.0,
+                    step=0.1,
+                    info="How closely to follow the prompt (4.0 default)"
+                )
+
+            with gr.Row():
                 seed = create_seed_control()
-
-            # Guidance parameter (conditionally visible)
-            with gr.Row():
-                guidance = gr.Number(
-                    label="Guidance scale - Controls prompt adherence", 
-                    value=3.5, 
-                    visible=False
+                quantization = gr.Dropdown(
+                    label="Quantization",
+                    choices=["qint8", "full"],
+                    value="qint8",
+                    info="qint8: Transformer quantized (~35GB FLUX.2) | full: Full precision (~115GB)"
                 )
 
-            # Update guidance visibility and steps based on model selection
-            model_alias.change(
-                fn=image_generator.update_guidance_visibility, 
-                inputs=model_alias, 
-                outputs=guidance
-            )
-            model_alias.change(
-                fn=image_generator.update_steps_for_model,
-                inputs=model_alias,
-                outputs=steps
-            )
-            model_alias.change(
-                fn=image_generator.update_negative_prompt_visibility,
-                inputs=model_alias,
-                outputs=negative_prompt
-            )
+            # ===== DYNAMIC PANELS (Visibility Controlled by Mode) =====
 
-            # Image dimensions
-            dimension_controls = create_image_dimensions_controls(1024, 1024)
-            height = dimension_controls['height']
-            width = dimension_controls['width']
+            # Z-Image-Turbo Mode Notice
+            with gr.Column(visible=False) as zimage_notice:
+                gr.Markdown("### 🚀 Z-Image-Turbo Mode")
+                gr.Markdown("**Fast generation** - Uses Tongyi-MAI/Z-Image-Turbo (6B model). Default: 9 steps. Adjust steps as needed.")
 
-            # LoRA management interface
-            gr.Markdown("### 🎨 LoRA Models")
-            lora_components = create_lora_manager_interface("", image_generator.lora_data)
-            setup_lora_events(lora_components, image_generator.lora_data)
+            # Image-to-Image Mode
+            with gr.Column(visible=False) as image_to_image_group:
+                gr.Markdown("### 🔄 Image-to-Image Settings")
+                reference_image = gr.Image(
+                    label="Reference Image",
+                    type="pil",
+                    height=400
+                )
+                variation_strength = gr.Slider(
+                    label="Variation Strength",
+                    minimum=0.1,
+                    maximum=1.0,
+                    value=0.6,
+                    step=0.1,
+                    info="Higher = more variation from reference"
+                )
 
-            # Generation button and queue feedback
+
+            # ===== LORA ENHANCEMENT (Always Available) =====
+            gr.Markdown("### 🎨 LoRA Style Enhancement")
+            # Import filter function for initial dropdown population
+            from ui.lora_manager import filter_lora_by_model
+            # Default mode is Text-to-Image (FLUX.2), so filter for flux2-dev initially
+            initial_lora_data = filter_lora_by_model(image_generator.lora_data, "flux2-dev")
+            lora_components = create_lora_manager_interface("flux2_", initial_lora_data)
+            # Setup events with FULL lora_data for dynamic filtering
+            setup_lora_events(lora_components, image_generator.lora_data, "flux2_")
+
+            # ===== ADVANCED OPTIONS =====
+            with gr.Accordion("⚙️ Advanced Options", open=False):
+                dimension_controls = create_image_dimensions_controls(1024, 1024)
+                flux2_width = dimension_controls['width']
+                flux2_height = dimension_controls['height']
+
+            # ===== GENERATION BUTTON =====
             generate_btn = create_generation_button("🎨 Add to Queue")
-            queue_feedback = gr.Markdown(value="**Ready to queue tasks** - Click Generate to add to processing queue")
-            
+            queue_feedback = gr.Markdown(value="**Ready to queue** - Configure parameters and click Generate")
+
+            # ===== EVENT HANDLERS =====
+
+            # Simple visibility update function with LoRA filtering
+            def update_simple_mode_visibility(mode):
+                """Update UI visibility for simplified 3-mode interface and filter LoRA dropdown"""
+                is_img2img = (mode == "🔄 Image-to-Image")
+                is_zimage = (mode == "🚀 Z-Image-Turbo (fast)")
+
+                # Filter LoRA dropdown by model compatibility
+                lora_dropdown_update = get_lora_dropdown_choices_for_mode(image_generator.lora_data, mode)
+
+                # Determine steps and guidance based on mode
+                if is_zimage:
+                    steps_value = 9  # 9 steps = 8 NFEs for Z-Image (can be adjusted)
+                    steps_interactive = True
+                else:
+                    steps_value = 28
+                    steps_interactive = True
+
+                # Z-Image doesn't use guidance (must be 0.0) or quantization
+                guidance_visible = not is_zimage
+                quantization_visible = not is_zimage  # Z-Image has no quantized version
+
+                return [
+                    gr.update(visible=is_img2img),      # image_to_image_group
+                    gr.update(visible=is_zimage),       # zimage_notice
+                    gr.update(value=steps_value, interactive=steps_interactive),  # steps
+                    gr.update(visible=guidance_visible),  # guidance
+                    gr.update(visible=quantization_visible),  # quantization
+                    lora_dropdown_update                # lora dropdown filtered by model
+                ]
+
+            # Mode change updates UI visibility and LoRA dropdown
+            generation_mode.change(
+                fn=update_simple_mode_visibility,
+                inputs=generation_mode,
+                outputs=[
+                    image_to_image_group,
+                    zimage_notice,
+                    steps,
+                    guidance,
+                    quantization,
+                    lora_components['available_dropdown']
+                ]
+            )
+
+            # Generate button queues task
             generate_btn.click(
-                fn=queue_standard_generation,
+                fn=queue_flux2_generation,
                 inputs=[
-                    prompt, negative_prompt, model_alias, quantization, steps, seed, guidance, height, width,
-                    lora_components['state'], lora_components['strength_1'], 
-                    lora_components['strength_2'], lora_components['strength_3']
+                    generation_mode, prompt, steps, guidance, seed,
+                    flux2_width, flux2_height, quantization,
+                    lora_components['state'], lora_components['strength_1'],
+                    lora_components['strength_2'], lora_components['strength_3'],
+                    # Image-to-Image parameter
+                    reference_image, variation_strength
                 ],
                 outputs=queue_feedback
             )
 
+
         # ==============================================================================
-        # TAB 2: POST-PROCESSING
+        # TAB 2b: SPECIFIC PROCESSING
         # ==============================================================================
-        with gr.Tab("Post-Processing"):
-            gr.Markdown("## Advanced post-processing tools")
-            
-            # Queue feedback for post-processing
-            post_processing_queue_feedback = gr.Markdown(
-                value="**Ready to queue post-processing tasks** - Select a tool and click its button to add to processing queue"
-            )
-            
+        with gr.Tab("Specific Processing"):
+            gr.Markdown("## Specific Processing Tools")
+            gr.Markdown("Standalone tools for image processing that don't require generation.")
+
             # Processing type selector
-            processing_type = create_post_processing_selector([
-                "None", 
-                "FLUX Fill (inpainting and outpainting)", 
-                "Kontext (edit with text descriptions)", 
-                "FLUX Depth (control with depth maps)", 
-                "FLUX Canny (control with edge detection)", 
-                "FLUX Redux (create image variations)", 
-                "Background Removal (transparent backgrounds)", 
-                "Upscaling (increase resolution)"
-            ])
+            specific_processing_type = gr.Dropdown(
+                label="Processing Type",
+                choices=["Background Removal (RMBG)", "Multi-Angles Generation"],
+                value="Background Removal (RMBG)"
+            )
 
-            # FLUX Fill controls
-            with gr.Group(visible=False) as flux_fill_group:
-                gr.Markdown("### 🎨 FLUX Fill Tools")
-                
-                fill_mode = gr.Dropdown(
-                    label="Fill Mode",
-                    choices=["Inpainting", "Outpainting"],
-                    value="Inpainting"
-                )
-                
-                with gr.Row():
-                    with gr.Column(scale=2):
-                        # Inpainting controls
-                        with gr.Group(visible=True) as inpainting_group:
-                            gr.Markdown("### ✏️ Inpainting - Fill masked areas")
-                            flux_fill_editor = create_image_editor_component("Image Editor - Upload image and draw mask", 400)
-                        
-                        # Outpainting controls
-                        with gr.Group(visible=False) as outpainting_group:
-                            gr.Markdown("### 🔄 Outpainting - Extend image boundaries")
-                            flux_outpaint_image = gr.Image(
-                                label="Base Image - Image to extend",
-                                type="pil",
-                                height=400
-                            )
-                            expansion_controls = create_expansion_controls()
-                            flux_outpaint_top = expansion_controls['top']
-                            flux_outpaint_bottom = expansion_controls['bottom']
-                            flux_outpaint_left = expansion_controls['left']
-                            flux_outpaint_right = expansion_controls['right']
-                    
-                    with gr.Column(scale=1):
-                        gr.Markdown("### 👁️ Mask Preview")
-                        flux_fill_mask_preview = create_preview_image("Mask Preview - BLACK=keep, WHITE=fill (automatic)", 400)
+            # === RMBG Section ===
+            with gr.Column(visible=True) as rmbg_section:
+                gr.Markdown("### Background Removal")
+                gr.Markdown("Remove background from any image using RMBG-2.0 AI model.")
 
-                # LoRA section for FLUX Fill
-                gr.Markdown("### 🎨 LoRA Models - Optional style enhancements")
-                flux_fill_lora_components = create_lora_manager_interface("flux_fill_", image_generator.lora_data)
-                setup_lora_events(flux_fill_lora_components, image_generator.lora_data, "flux_fill_")
-
-                # Generation parameters
-                with gr.Row():
-                    flux_fill_prompt = create_prompt_input("Fill Prompt", 2, "Describe what should fill the masked area...")
-                    with gr.Column():
-                        flux_fill_steps = gr.Slider(
-                            label="Inference Steps",
-                            minimum=1,
-                            maximum=50,
-                            step=1,
-                            value=20
-                        )
-                        flux_fill_guidance = gr.Slider(
-                            label="Guidance Scale",
-                            minimum=1.0,
-                            maximum=50.0,
-                            step=1.0,
-                            value=30.0
-                        )
-                        flux_fill_quantization = create_quantization_selector()
-
-                # Generation button
-                flux_fill_generate_btn = create_generation_button("🎨 Add FLUX Fill to Queue", "primary", "lg")
-
-            # Kontext controls
-            with gr.Group(visible=False) as kontext_group:
-                gr.Markdown("### 🖼️ Kontext - Text-based image editing")
-                
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        kontext_input_image = gr.Image(
-                            label="Input Image - Image to edit/transform",
-                            type="pil",
-                            height=400
-                        )
-                    
-                    with gr.Column(scale=1):
-                        kontext_prompt = gr.Textbox(
-                            label="Edit Prompt - Describe the changes you want to make",
-                            placeholder="e.g., 'change the sky to sunset colors', 'add glasses to the person'...",
-                            lines=4
-                        )
-                        kontext_steps = gr.Slider(
-                            label="Inference Steps",
-                            minimum=1,
-                            maximum=50,
-                            step=1,
-                            value=25
-                        )
-                        kontext_guidance = gr.Slider(
-                            label="Guidance Scale",
-                            minimum=1.0,
-                            maximum=10.0,
-                            step=0.1,
-                            value=2.5
-                        )
-                        kontext_quantization = create_quantization_selector()
-
-                # LoRA section for Kontext
-                gr.Markdown("### 🎨 LoRA Models - Optional style enhancements")
-                kontext_lora_components = create_lora_manager_interface("kontext_", image_generator.lora_data)
-                setup_lora_events(kontext_lora_components, image_generator.lora_data, "kontext_")
-
-                kontext_generate_btn = create_generation_button("🖼️ Add Kontext Edit to Queue", "primary", "lg")
-
-            # FLUX Depth controls
-            with gr.Group(visible=False) as flux_depth_group:
-                gr.Markdown("### 🌊 FLUX Depth - Depth-guided image generation")
-                
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        depth_input_image = gr.Image(
-                            label="Input Image - Image to extract depth from",
-                            type="pil",
-                            height=400
-                        )
-                        
-                        # Step 1: Generate depth preview
-                        depth_preview_btn = create_generation_button("🔍 Generate Depth Map", "secondary", "lg")
-                        depth_map_preview = create_preview_image("Depth Map Preview", 400)
-                    
-                    with gr.Column(scale=1):
-                        depth_prompt = gr.Textbox(
-                            label="Generation Prompt - Describe what you want to generate",
-                            placeholder="e.g., 'a futuristic cityscape', 'underwater scene', 'fantasy landscape'...",
-                            lines=4
-                        )
-                        depth_steps = gr.Slider(
-                            label="Inference Steps",
-                            minimum=1,
-                            maximum=50,
-                            step=1,
-                            value=28
-                        )
-                        depth_guidance = gr.Slider(
-                            label="Guidance Scale",
-                            minimum=1.0,
-                            maximum=10.0,
-                            step=0.1,
-                            value=3.5
-                        )
-                        depth_quantization = create_quantization_selector()
-
-                # LoRA section for FLUX Depth
-                gr.Markdown("### 🎨 LoRA Models - Optional style enhancements")
-                depth_lora_components = create_lora_manager_interface("depth_", image_generator.lora_data)
-                setup_lora_events(depth_lora_components, image_generator.lora_data, "depth_")
-
-                # Step 2: Generate final image
-                depth_generate_btn = create_generation_button("🌊 Add FLUX Depth to Queue", "primary", "lg")
-
-            # FLUX Canny controls
-            with gr.Group(visible=False) as flux_canny_group:
-                gr.Markdown("### 🖋️ FLUX Canny - Edge-guided image generation")
-                
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        canny_input_image = gr.Image(
-                            label="Input Image - Image to extract edges from",
-                            type="pil",
-                            height=400
-                        )
-                        
-                        # Canny threshold controls
-                        with gr.Row():
-                            canny_low_threshold = gr.Slider(
-                                label="Low Threshold - Lower edge detection threshold",
-                                minimum=1,
-                                maximum=255,
-                                step=1,
-                                value=100
-                            )
-                            canny_high_threshold = gr.Slider(
-                                label="High Threshold - Higher edge detection threshold",
-                                minimum=1,
-                                maximum=255,
-                                step=1,
-                                value=200
-                            )
-                        
-                        # Step 1: Generate Canny preview
-                        canny_preview_btn = create_generation_button("🔍 Generate Edge Preview", "secondary", "lg")
-                        canny_map_preview = create_preview_image("Canny Edge Preview", 400)
-                    
-                    with gr.Column(scale=1):
-                        canny_prompt = gr.Textbox(
-                            label="Generation Prompt - Describe what you want to generate",
-                            placeholder="e.g., 'a futuristic robot', 'architectural building', 'portrait painting'...",
-                            lines=4
-                        )
-                        canny_steps = gr.Slider(
-                            label="Inference Steps",
-                            minimum=1,
-                            maximum=50,
-                            step=1,
-                            value=28
-                        )
-                        canny_guidance = gr.Slider(
-                            label="Guidance Scale",
-                            minimum=1.0,
-                            maximum=50.0,
-                            step=0.5,
-                            value=30.0
-                        )
-                        canny_quantization = create_quantization_selector()
-
-                # LoRA section for FLUX Canny
-                gr.Markdown("### 🎨 LoRA Models - Optional style enhancements")
-                canny_lora_components = create_lora_manager_interface("canny_", image_generator.lora_data)
-                setup_lora_events(canny_lora_components, image_generator.lora_data, "canny_")
-
-                # Step 2: Generate final image
-                canny_generate_btn = create_generation_button("🖋️ Add FLUX Canny to Queue", "primary", "lg")
-
-            # Background Removal controls
-            with gr.Group(visible=False) as bg_removal_group:
-                gr.Markdown("### 🎭 Background Removal")
-                
-                bg_input_image = gr.Image(
+                rmbg_input = gr.Image(
                     label="Input Image",
                     type="pil",
                     height=400
                 )
-                bg_remove_btn = create_generation_button("🎭 Add Background Removal to Queue", "primary", "lg")
 
-            # FLUX Redux controls
-            with gr.Group(visible=False) as flux_redux_group:
-                gr.Markdown("### 🔄 FLUX Redux - Image variation and refinement")
-                
+                rmbg_btn = gr.Button("Remove Background", variant="primary", size="lg")
+                rmbg_feedback = gr.Markdown(value="**Ready** - Upload an image and click Remove Background")
+
+            # === Multi-Angles Section ===
+            with gr.Column(visible=False) as multiangles_section:
+                gr.Markdown("### Multi-Angles Generation (FLUX.2)")
+                gr.Markdown("Generate images with controlled camera angles using Multi-Angles LoRA")
+
+                # Reference image (required for consistent subject across angles)
+                ma_reference_image = gr.Image(
+                    label="Reference Image",
+                    type="pil",
+                    height=300
+                )
+
+                # === Angle Selectors ===
                 with gr.Row():
-                    with gr.Column(scale=1):
-                        redux_input_image = gr.Image(
-                            label="Input Image - Image to create variations from",
-                            type="pil",
-                            height=400
-                        )
-                    
-                    with gr.Column(scale=1):
-                        redux_guidance = gr.Slider(
-                            label="Guidance Scale - Controls how closely output follows input",
-                            minimum=1.0,
-                            maximum=5.0,
-                            step=0.1,
-                            value=3.0
-                        )
-                        redux_steps = gr.Slider(
-                            label="Inference Steps",
-                            minimum=1,
-                            maximum=50,
-                            step=1,
-                            value=28
-                        )
-                        redux_variation_strength = gr.Slider(
-                            label="Variation Strength - Intensity of variation",
-                            minimum=0.1,
-                            maximum=1.0,
-                            step=0.1,
-                            value=0.6
-                        )
-                        redux_quantization = create_quantization_selector()
+                    ma_azimuth = gr.Dropdown(
+                        label="Azimuth (Horizontal Rotation)",
+                        choices=[
+                            "front view",
+                            "front-right quarter view",
+                            "right side view",
+                            "back-right quarter view",
+                            "back view",
+                            "back-left quarter view",
+                            "left side view",
+                            "front-left quarter view"
+                        ],
+                        value="front view"
+                    )
+                    ma_elevation = gr.Dropdown(
+                        label="Elevation (Vertical Angle)",
+                        choices=[
+                            "eye-level",
+                            "low-angle",
+                            "mid-low",
+                            "mid-angle",
+                            "high-mid",
+                            "high-angle",
+                            "steep-mid",
+                            "steep-angle",
+                            "overhead"
+                        ],
+                        value="eye-level"
+                    )
+                    ma_distance = gr.Dropdown(
+                        label="Distance",
+                        choices=["close-up", "medium shot", "wide shot"],
+                        value="medium shot"
+                    )
 
-                redux_generate_btn = create_generation_button("🔄 Add FLUX Redux to Queue", "primary", "lg")
+                # Preview of composed prompt (auto-updated)
+                ma_composed_prompt = gr.Textbox(
+                    label="Composed Prompt (auto-generated)",
+                    interactive=False,
+                    value="<sks> front view eye-level shot medium shot"
+                )
 
-            # Upscaling controls
-            with gr.Group(visible=False) as upscaling_group:
-                gr.Markdown("### 📈 Image Upscaling")
-                
+                # Parameters
                 with gr.Row():
-                    with gr.Column(scale=1):
-                        upscale_input_image = gr.Image(
-                            label="Input Image",
-                            type="pil",
-                            height=400
-                        )
-                    
-                    with gr.Column(scale=1):
-                        upscale_factor = gr.Slider(
-                            label="Upscale Factor",
-                            minimum=1.0,
-                            maximum=10.0,
-                            step=0.5,
-                            value=2.0
-                        )
-                        upscale_quantization = create_quantization_selector()
-                
-                upscale_btn = create_generation_button("📈 Add Upscale Image to Queue", "primary", "lg")
+                    ma_steps = gr.Slider(
+                        label="Steps",
+                        minimum=10,
+                        maximum=50,
+                        value=28,
+                        step=1
+                    )
+                    ma_lora_scale = gr.Slider(
+                        label="LoRA Scale",
+                        minimum=0.5,
+                        maximum=1.0,
+                        value=0.9,
+                        step=0.05
+                    )
+                    ma_seed = gr.Number(
+                        label="Seed (0 = random)",
+                        value=0,
+                        precision=0
+                    )
 
-            # Set up processing type change event
-            processing_type.change(
-                fn=update_flux_fill_controls_visibility,
-                inputs=processing_type,
-                outputs=[flux_fill_group, kontext_group, flux_depth_group, flux_canny_group, flux_redux_group, bg_removal_group, upscaling_group]
+                with gr.Row():
+                    ma_width = gr.Slider(
+                        label="Width",
+                        minimum=512,
+                        maximum=2048,
+                        value=1024,
+                        step=64
+                    )
+                    ma_height = gr.Slider(
+                        label="Height",
+                        minimum=512,
+                        maximum=2048,
+                        value=1024,
+                        step=64
+                    )
+                    ma_quantization = gr.Dropdown(
+                        label="Quantization",
+                        choices=["qint8", "full"],
+                        value="qint8",
+                        info="qint8: ~35GB | full: ~115GB"
+                    )
+
+                # Generate button
+                ma_generate_btn = gr.Button("Generate Multi-Angle Image", variant="primary", size="lg")
+                ma_feedback = gr.Markdown(value="**Ready** - Upload a reference image and configure angles")
+
+                gr.Markdown("""
+                **Note:** The Multi-Angles LoRA (~317 MB) will be automatically downloaded on first use.
+                """)
+
+            # === Specific Processing Event Handlers ===
+
+            # Compose Multi-Angles prompt function
+            def compose_multiangles_prompt(azimuth, elevation, distance):
+                """Compose the full prompt with <sks> token and angle descriptors."""
+                return f"<sks> {azimuth} {elevation} shot {distance}"
+
+            # Toggle visibility between RMBG and Multi-Angles sections
+            def update_specific_processing_visibility(processing_type):
+                is_rmbg = (processing_type == "Background Removal (RMBG)")
+                return [
+                    gr.update(visible=is_rmbg),       # rmbg_section
+                    gr.update(visible=not is_rmbg)   # multiangles_section
+                ]
+
+            specific_processing_type.change(
+                fn=update_specific_processing_visibility,
+                inputs=specific_processing_type,
+                outputs=[rmbg_section, multiangles_section]
             )
-            
-            # Set up FLUX Fill mode change event with preview
-            def combined_mode_change(mode):
-                # Update visibility
-                visibility_updates = update_flux_fill_mode_visibility(mode)
-                # Generate preview
-                preview = generate_flux_fill_preview(mode, None, None, 25, 25, 25, 25)
-                return (*visibility_updates, preview)
-            
-            fill_mode.change(
-                fn=combined_mode_change,
-                inputs=fill_mode,
-                outputs=[inpainting_group, outpainting_group, flux_fill_mask_preview]
-            )
-            
-            # Automatic preview generation for inpainting when drawing on image
-            flux_fill_editor.change(
-                fn=generate_flux_fill_preview,
-                inputs=[
-                    fill_mode, flux_fill_editor, flux_outpaint_image,
-                    flux_outpaint_top, flux_outpaint_bottom, flux_outpaint_left, flux_outpaint_right
-                ],
-                outputs=flux_fill_mask_preview
-            )
-            
-            # Automatic preview generation for outpainting when image or percentages change
-            flux_outpaint_image.change(
-                fn=generate_flux_fill_preview,
-                inputs=[
-                    fill_mode, flux_fill_editor, flux_outpaint_image,
-                    flux_outpaint_top, flux_outpaint_bottom, flux_outpaint_left, flux_outpaint_right
-                ],
-                outputs=flux_fill_mask_preview
-            )
-            
-            # Auto-update preview when outpainting percentages change
-            for slider in [flux_outpaint_top, flux_outpaint_bottom, flux_outpaint_left, flux_outpaint_right]:
-                slider.change(
-                    fn=generate_flux_fill_preview,
-                    inputs=[
-                        fill_mode, flux_fill_editor, flux_outpaint_image,
-                        flux_outpaint_top, flux_outpaint_bottom, flux_outpaint_left, flux_outpaint_right
-                    ],
-                    outputs=flux_fill_mask_preview
+
+            # Auto-update composed prompt when selectors change
+            for selector in [ma_azimuth, ma_elevation, ma_distance]:
+                selector.change(
+                    fn=compose_multiangles_prompt,
+                    inputs=[ma_azimuth, ma_elevation, ma_distance],
+                    outputs=ma_composed_prompt
                 )
-            
-            # FLUX Fill generation event - wrapper to pass image_generator
-            def flux_fill_wrapper(fill_mode, image_editor_data, outpaint_image, prompt, steps, guidance_scale, quantization,
-                                top_percent, bottom_percent, left_percent, right_percent,
-                                lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
-                return process_flux_fill(
-                    fill_mode, image_editor_data, outpaint_image, prompt, steps, guidance_scale, quantization,
-                    top_percent, bottom_percent, left_percent, right_percent,
-                    lora_state, lora_strength_1, lora_strength_2, lora_strength_3,
-                    image_generator
-                )
-            
-            flux_fill_generate_btn.click(
-                fn=queue_flux_fill,
-                inputs=[
-                    fill_mode, flux_fill_editor, flux_outpaint_image, flux_fill_prompt, flux_fill_steps, flux_fill_guidance, flux_fill_quantization,
-                    flux_outpaint_top, flux_outpaint_bottom, flux_outpaint_left, flux_outpaint_right,
-                    flux_fill_lora_components['state'],
-                    flux_fill_lora_components['strength_1'], flux_fill_lora_components['strength_2'], flux_fill_lora_components['strength_3']
-                ],
-                outputs=post_processing_queue_feedback,
-                show_progress=True
-            )
-            
-            # Kontext generation event - wrapper to pass image_generator
-            def kontext_wrapper(input_image, prompt, steps, guidance_scale, quantization, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
-                return process_kontext(
-                    input_image, prompt, steps, guidance_scale, quantization, lora_state,
-                    lora_strength_1, lora_strength_2, lora_strength_3,
-                    image_generator
-                )
-            
-            kontext_generate_btn.click(
-                fn=queue_kontext,
-                inputs=[
-                    kontext_input_image, kontext_prompt, kontext_steps, kontext_guidance, kontext_quantization,
-                    kontext_lora_components['state'],
-                    kontext_lora_components['strength_1'], kontext_lora_components['strength_2'], kontext_lora_components['strength_3']
-                ],
-                outputs=post_processing_queue_feedback,
-                show_progress=True
-            )
-            
-            # Background removal event
-            bg_remove_btn.click(
+
+            # RMBG button click
+            rmbg_btn.click(
                 fn=queue_background_removal,
-                inputs=bg_input_image,
-                outputs=post_processing_queue_feedback,
-                show_progress=True
+                inputs=rmbg_input,
+                outputs=rmbg_feedback
             )
-            
-            # Upscaling event
-            upscale_btn.click(
-                fn=queue_upscaling,
-                inputs=[upscale_input_image, upscale_factor, upscale_quantization],
-                outputs=post_processing_queue_feedback,
-                show_progress=True
-            )
-            
-            # FLUX Depth events
-            # Step 1: Generate depth map preview
-            depth_preview_btn.click(
-                fn=generate_depth_map,
-                inputs=depth_input_image,
-                outputs=depth_map_preview,
-                show_progress=True
-            )
-            
-            # Step 2: FLUX Depth generation event - wrapper to pass image_generator
-            def flux_depth_wrapper(input_image, prompt, steps, guidance_scale, quantization, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
-                return process_flux_depth(
-                    input_image, prompt, steps, guidance_scale, quantization, lora_state,
-                    lora_strength_1, lora_strength_2, lora_strength_3,
-                    image_generator
-                )
-            
-            depth_generate_btn.click(
-                fn=queue_flux_depth,
+
+            # Multi-Angles generate button click
+            ma_generate_btn.click(
+                fn=queue_multiangles_generation,
                 inputs=[
-                    depth_input_image, depth_prompt, depth_steps, depth_guidance, depth_quantization,
-                    depth_lora_components['state'],
-                    depth_lora_components['strength_1'], depth_lora_components['strength_2'], depth_lora_components['strength_3']
+                    ma_composed_prompt, ma_reference_image, ma_steps, ma_lora_scale,
+                    ma_width, ma_height, ma_seed, ma_quantization
                 ],
-                outputs=post_processing_queue_feedback,
-                show_progress=True
-            )
-            
-            # FLUX Canny events
-            # Step 1: Generate Canny edge preview
-            canny_preview_btn.click(
-                fn=flux_canny_preview,
-                inputs=[canny_input_image, canny_low_threshold, canny_high_threshold],
-                outputs=canny_map_preview,
-                show_progress=True
-            )
-            
-            # Real-time Canny preview updates when image or thresholds change
-            canny_input_image.change(
-                fn=flux_canny_preview,
-                inputs=[canny_input_image, canny_low_threshold, canny_high_threshold],
-                outputs=canny_map_preview
-            )
-            
-            canny_low_threshold.change(
-                fn=flux_canny_preview,
-                inputs=[canny_input_image, canny_low_threshold, canny_high_threshold],
-                outputs=canny_map_preview
-            )
-            
-            canny_high_threshold.change(
-                fn=flux_canny_preview,
-                inputs=[canny_input_image, canny_low_threshold, canny_high_threshold],
-                outputs=canny_map_preview
-            )
-            
-            # Step 2: FLUX Canny generation event - wrapper to pass image_generator
-            def flux_canny_wrapper(input_image, prompt, steps, guidance_scale, quantization, low_threshold, high_threshold, lora_state, lora_strength_1, lora_strength_2, lora_strength_3):
-                return process_flux_canny(
-                    input_image, prompt, steps, guidance_scale, quantization, low_threshold, high_threshold, lora_state,
-                    lora_strength_1, lora_strength_2, lora_strength_3,
-                    image_generator
-                )
-            
-            canny_generate_btn.click(
-                fn=queue_flux_canny,
-                inputs=[
-                    canny_input_image, canny_prompt, canny_steps, canny_guidance, canny_quantization, canny_low_threshold, canny_high_threshold,
-                    canny_lora_components['state'],
-                    canny_lora_components['strength_1'], canny_lora_components['strength_2'], canny_lora_components['strength_3']
-                ],
-                outputs=post_processing_queue_feedback,
-                show_progress=True
-            )
-            
-            # FLUX Redux generation event - wrapper to pass image_generator
-            def flux_redux_wrapper(input_image, guidance_scale, steps, variation_strength, quantization):
-                return process_flux_redux(
-                    input_image, guidance_scale, steps, variation_strength, quantization,
-                    image_generator
-                )
-            
-            redux_generate_btn.click(
-                fn=queue_flux_redux,
-                inputs=[
-                    redux_input_image, redux_guidance, redux_steps, redux_variation_strength, redux_quantization
-                ],
-                outputs=post_processing_queue_feedback,
-                show_progress=True
+                outputs=ma_feedback
             )
 
         # ==============================================================================
@@ -1138,32 +941,26 @@ def create_main_interface():
             try:
                 # Only refresh if sync_state is not 0 (meaning a change occurred)
                 if sync_state == 0:
-                    return [gr.update()] * 5
-                
+                    return gr.update()
+
                 image_generator.refresh_lora_data()
-                
+
                 # Refresh all LoRA dropdown choices
                 from ui.lora_manager import refresh_lora_dropdown_choices
                 dropdown_update = refresh_lora_dropdown_choices(image_generator.lora_data)
-                
-                # Return the update for all dropdowns
-                return [dropdown_update] * 5  # 5 dropdowns to update
-                
+
+                # Return the update for the Generation tab LoRA dropdown
+                return dropdown_update
+
             except Exception as e:
                 # Return empty update in case of error
-                return [gr.update()] * 5
-        
-        # Connect the sync state to refresh all dropdowns when it changes
+                return gr.update()
+
+        # Connect the sync state to refresh the Generation tab LoRA dropdown when it changes
         lora_management_components['sync_state'].change(
             fn=refresh_lora_for_generation,
-            inputs=[lora_management_components['sync_state']],  # Take the state as input
-            outputs=[
-                lora_components['available_dropdown'],
-                flux_fill_lora_components['available_dropdown'],
-                kontext_lora_components['available_dropdown'],
-                depth_lora_components['available_dropdown'],
-                canny_lora_components['available_dropdown']
-            ]
+            inputs=[lora_management_components['sync_state']],
+            outputs=lora_components['available_dropdown']
         )
         
         # ==============================================================================
@@ -1224,7 +1021,8 @@ def main():
     # Configure launch parameters
     launch_params = {
         "show_error": True,
-        "quiet": False
+        "quiet": False,
+        "theme": gr.themes.Glass()
     }
     
     if args.share:

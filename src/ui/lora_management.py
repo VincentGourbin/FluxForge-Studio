@@ -23,60 +23,133 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from core.database import (
-    get_all_lora, add_lora, update_lora, delete_lora, 
+    get_all_lora, add_lora, update_lora, delete_lora,
     get_lora_by_id, refresh_lora_file_sizes
 )
+from core.config import LORA_COMPATIBLE_MODELS
 
 def format_file_size(size_bytes):
     """
     Format file size in human readable format.
-    
+
     Args:
         size_bytes (int): File size in bytes
-        
+
     Returns:
         str: Formatted file size
     """
     if size_bytes is None:
         return "Unknown"
-    
+
     for unit in ['B', 'KB', 'MB', 'GB']:
         if size_bytes < 1024.0:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
 
+
+def format_compatible_models(model_ids):
+    """
+    Format list of model IDs to display names.
+
+    Args:
+        model_ids (list): List of model IDs
+
+    Returns:
+        str: Comma-separated display names
+    """
+    if not model_ids:
+        return "-"
+
+    display_names = []
+    for model_id in model_ids:
+        display_name = LORA_COMPATIBLE_MODELS.get(model_id, model_id)
+        display_names.append(display_name)
+
+    return ", ".join(display_names)
+
+
+def get_model_ids_from_display_names(display_names):
+    """
+    Convert display names back to model IDs.
+
+    Args:
+        display_names (list): List of display names
+
+    Returns:
+        list: List of model IDs
+    """
+    if not display_names:
+        return []
+
+    # Create reverse mapping
+    name_to_id = {v: k for k, v in LORA_COMPATIBLE_MODELS.items()}
+
+    model_ids = []
+    for name in display_names:
+        model_id = name_to_id.get(name)
+        if model_id:
+            model_ids.append(model_id)
+
+    return model_ids
+
+
+def get_display_names_from_model_ids(model_ids):
+    """
+    Convert model IDs to display names.
+
+    Args:
+        model_ids (list): List of model IDs
+
+    Returns:
+        list: List of display names
+    """
+    if not model_ids:
+        return []
+
+    display_names = []
+    for model_id in model_ids:
+        display_name = LORA_COMPATIBLE_MODELS.get(model_id)
+        if display_name:
+            display_names.append(display_name)
+
+    return display_names
+
 def get_lora_dataframe():
     """
     Get LoRA data formatted for Gradio dataframe display.
-    
+
     Returns:
         list: List of lists for dataframe display
     """
     lora_list = get_all_lora()
-    
+
     dataframe_data = []
     for lora in lora_list:
         # Check if file exists
         lora_file_path = Path('lora') / lora['file_name']
         status = "✅ Exists" if lora_file_path.exists() else "❌ Missing"
-        
+
         # Format file size
         file_size = format_file_size(lora['file_size'])
-        
+
         # Format activation keyword
         activation_keyword = lora['activation_keyword'] or "-"
-        
+
+        # Format compatible models
+        compatible_models = format_compatible_models(lora.get('compatible_models', []))
+
         dataframe_data.append([
             False,  # Checkbox for selection
             lora['id'],  # Hidden ID for operations
             lora['file_name'],
             lora['description'][:50] + "..." if len(lora['description']) > 50 else lora['description'],
             activation_keyword,
+            compatible_models,
             file_size,
             status
         ])
-    
+
     return dataframe_data
 
 def create_lora_management_tab():
@@ -106,14 +179,14 @@ def create_lora_management_tab():
             # Dataframe
             lora_dataframe = gr.Dataframe(
                 value=get_lora_dataframe(),
-                headers=["Select", "ID", "File Name", "Description", "Activation Keyword", "File Size", "Status"],
-                datatype=["bool", "number", "str", "str", "str", "str", "str"],
+                headers=["Select", "ID", "File Name", "Description", "Activation Keyword", "Compatible Models", "File Size", "Status"],
+                datatype=["bool", "number", "str", "str", "str", "str", "str", "str"],
                 label="LoRA Models - Edit descriptions and keywords directly, check boxes to select for delete",
                 interactive=True,
                 row_count=(0, "dynamic"),
-                col_count=7,
+                column_count=8,
                 wrap=True,
-                column_widths=[60, 0, 200, 300, 150, 100, 100]  # Hide ID column by setting width to 0
+                column_widths=[60, 0, 180, 250, 130, 150, 80, 80]  # Hide ID column by setting width to 0
             )
             
             # Action buttons below dataframe
@@ -151,7 +224,14 @@ def create_lora_management_tab():
                         label="Activation Keyword",
                         placeholder="Enter activation keyword (optional)"
                     )
-                    
+
+                    add_compatible_models = gr.CheckboxGroup(
+                        choices=list(LORA_COMPATIBLE_MODELS.values()),
+                        value=[],
+                        label="Compatible Models",
+                        info="Select which models this LoRA is compatible with"
+                    )
+
                     add_btn = gr.Button("➕ Add LoRA", variant="primary", size="lg")
                 
                 with gr.Column(scale=1):
@@ -170,7 +250,7 @@ def create_lora_management_tab():
         # ==============================================================================
         with gr.Group(visible=False) as edit_group:
             gr.Markdown("### ✏️ Edit Selected LoRA")
-            
+
             with gr.Row():
                 with gr.Column(scale=1):
                     edit_description = gr.Textbox(
@@ -178,16 +258,23 @@ def create_lora_management_tab():
                         placeholder="LoRA description will appear here",
                         lines=3
                     )
-                    
+
                     edit_activation_keyword = gr.Textbox(
                         label="Activation Keyword",
                         placeholder="Activation keyword will appear here"
                     )
-                    
+
+                    edit_compatible_models = gr.CheckboxGroup(
+                        choices=list(LORA_COMPATIBLE_MODELS.values()),
+                        value=[],
+                        label="Compatible Models",
+                        info="Select which models this LoRA is compatible with"
+                    )
+
                     with gr.Row():
                         update_btn = gr.Button("💾 Update LoRA", variant="primary", size="lg")
                         cancel_edit_btn = gr.Button("❌ Cancel Edit", variant="secondary", size="lg")
-                
+
                 with gr.Column(scale=1):
                     edit_info_display = gr.Markdown("**LoRA information will appear here**")
         
@@ -226,10 +313,12 @@ def create_lora_management_tab():
         'file_upload': file_upload,
         'add_description': add_description,
         'add_activation_keyword': add_activation_keyword,
+        'add_compatible_models': add_compatible_models,
         'add_btn': add_btn,
         'edit_group': edit_group,
         'edit_description': edit_description,
         'edit_activation_keyword': edit_activation_keyword,
+        'edit_compatible_models': edit_compatible_models,
         'update_btn': update_btn,
         'cancel_edit_btn': cancel_edit_btn,
         'edit_info_display': edit_info_display,
@@ -273,130 +362,143 @@ def refresh_file_sizes():
     except Exception as e:
         return get_lora_dataframe(), f"**Status:** Error refreshing file sizes - {str(e)}"
 
-def upload_and_add_lora(file_path, description, activation_keyword):
+def upload_and_add_lora(file_path, description, activation_keyword, compatible_models_display):
     """
     Upload a LoRA file and add it to the database.
-    
+
     Args:
         file_path (str): Path to the uploaded file
         description (str): Description of the LoRA
         activation_keyword (str): Activation keyword
-        
+        compatible_models_display (list): List of compatible model display names
+
     Returns:
         tuple: (dataframe_data, status_message, cleared_inputs, sync_trigger)
     """
     try:
         if not file_path:
-            return get_lora_dataframe(), "**Status:** No file selected", "", ""
-        
+            return get_lora_dataframe(), "**Status:** No file selected", "", "", [], 0
+
         if not description.strip():
-            return get_lora_dataframe(), "**Status:** Description is required", file_path, description
-        
+            return get_lora_dataframe(), "**Status:** Description is required", file_path, description, compatible_models_display, 0
+
         # Get filename
         file_name = os.path.basename(file_path)
-        
+
         # Check if it's a .safetensors file
         if not file_name.lower().endswith('.safetensors'):
-            return get_lora_dataframe(), "**Status:** File must be a .safetensors file", file_path, description
-        
+            return get_lora_dataframe(), "**Status:** File must be a .safetensors file", file_path, description, compatible_models_display, 0
+
         # Create lora directory if it doesn't exist
         lora_dir = Path('lora')
         lora_dir.mkdir(exist_ok=True)
-        
+
         # Copy file to lora directory
         destination = lora_dir / file_name
-        
+
         if destination.exists():
-            return get_lora_dataframe(), f"**Status:** File '{file_name}' already exists in lora directory", file_path, description
-        
+            return get_lora_dataframe(), f"**Status:** File '{file_name}' already exists in lora directory", file_path, description, compatible_models_display, 0
+
         shutil.copy2(file_path, destination)
-        
+
+        # Convert display names to model IDs
+        compatible_models = get_model_ids_from_display_names(compatible_models_display)
+
         # Add to database
-        success, message, lora_id = add_lora(file_name, description.strip(), activation_keyword.strip())
-        
+        success, message, lora_id = add_lora(file_name, description.strip(), activation_keyword.strip(), compatible_models)
+
         if success:
             dataframe_data = get_lora_dataframe()
             status_message = f"**Status:** {message}"
             # Trigger sync with timestamp
-            return dataframe_data, status_message, None, "", "", time.time()  # Clear inputs + trigger sync
+            return dataframe_data, status_message, None, "", "", [], time.time()  # Clear inputs + trigger sync
         else:
             # Remove file if database addition failed
             if destination.exists():
                 destination.unlink()
-            return get_lora_dataframe(), f"**Status:** {message}", file_path, description, "", 0
-    
+            return get_lora_dataframe(), f"**Status:** {message}", file_path, description, "", compatible_models_display, 0
+
     except Exception as e:
-        return get_lora_dataframe(), f"**Status:** Error uploading LoRA - {str(e)}", file_path, description, "", 0
+        return get_lora_dataframe(), f"**Status:** Error uploading LoRA - {str(e)}", file_path, description, "", compatible_models_display, 0
 
 def load_lora_details(lora_id):
     """
     Load LoRA details for editing.
-    
+
     Args:
         lora_id (float): ID of the LoRA to load
-        
+
     Returns:
-        tuple: (description, activation_keyword, info_display)
+        tuple: (description, activation_keyword, compatible_models_display, info_display)
     """
     try:
         if not lora_id or lora_id <= 0:
-            return "", "", "**Enter a valid LoRA ID and click 'Load LoRA Details'**"
-        
+            return "", "", [], "**Enter a valid LoRA ID and click 'Load LoRA Details'**"
+
         lora_id = int(lora_id)
         lora = get_lora_by_id(lora_id)
-        
+
         if not lora:
-            return "", "", f"**LoRA with ID {lora_id} not found**"
-        
+            return "", "", [], f"**LoRA with ID {lora_id} not found**"
+
         # Format info display
         lora_file_path = Path('lora') / lora['file_name']
         file_status = "✅ Exists" if lora_file_path.exists() else "❌ Missing"
         file_size = format_file_size(lora['file_size'])
-        
+
+        # Get compatible models as display names
+        compatible_models_display = get_display_names_from_model_ids(lora.get('compatible_models', []))
+
         info_display = f"""
         **LoRA Details**
         - **ID:** {lora['id']}
         - **File Name:** {lora['file_name']}
         - **File Size:** {file_size}
         - **Status:** {file_status}
+        - **Compatible Models:** {format_compatible_models(lora.get('compatible_models', []))}
         - **Created:** {lora['created_at'][:19]}
         - **Updated:** {lora['updated_at'][:19]}
         """
-        
-        return lora['description'], lora['activation_keyword'] or "", info_display
-        
-    except Exception as e:
-        return "", "", f"**Error loading LoRA details: {str(e)}**"
 
-def update_lora_details(lora_id, description, activation_keyword):
+        return lora['description'], lora['activation_keyword'] or "", compatible_models_display, info_display
+
+    except Exception as e:
+        return "", "", [], f"**Error loading LoRA details: {str(e)}**"
+
+def update_lora_details(lora_id, description, activation_keyword, compatible_models_display=None):
     """
     Update LoRA details in the database.
-    
+
     Args:
         lora_id (float): ID of the LoRA to update
         description (str): New description
         activation_keyword (str): New activation keyword
-        
+        compatible_models_display (list): List of compatible model display names
+
     Returns:
         tuple: (dataframe_data, status_message)
     """
     try:
         if not lora_id or lora_id <= 0:
             return get_lora_dataframe(), "**Status:** Invalid LoRA ID"
-        
+
         if not description.strip():
             return get_lora_dataframe(), "**Status:** Description is required"
-        
+
         lora_id = int(lora_id)
-        success, message = update_lora(lora_id, description.strip(), activation_keyword.strip())
-        
+
+        # Convert display names to model IDs
+        compatible_models = get_model_ids_from_display_names(compatible_models_display) if compatible_models_display else None
+
+        success, message = update_lora(lora_id, description.strip(), activation_keyword.strip(), compatible_models)
+
         if success:
             dataframe_data = get_lora_dataframe()
             status_message = f"**Status:** {message}"
             return dataframe_data, status_message
         else:
             return get_lora_dataframe(), f"**Status:** {message}"
-    
+
     except Exception as e:
         return get_lora_dataframe(), f"**Status:** Error updating LoRA - {str(e)}"
 
@@ -492,48 +594,52 @@ def get_selected_loras(dataframe_data):
 def start_edit_selected(dataframe_data):
     """
     Start editing the selected LoRA (only allows one selection for edit).
-    
+
     Args:
         dataframe_data: Dataframe data with selections
-        
+
     Returns:
-        tuple: (edit_group_visibility, description, activation_keyword, info_display, status_message)
+        tuple: (edit_group_visibility, description, activation_keyword, compatible_models_display, info_display, status_message)
     """
     try:
         selected_ids = get_selected_loras(dataframe_data)
-        
+
         if not selected_ids:
-            return False, "", "", "**No LoRA selected for editing**", "**Status:** Please select exactly one LoRA to edit"
-        
+            return False, "", "", [], "**No LoRA selected for editing**", "**Status:** Please select exactly one LoRA to edit"
+
         if len(selected_ids) > 1:
-            return False, "", "", "**Multiple LoRAs selected**", "**Status:** Please select only one LoRA to edit"
-        
+            return False, "", "", [], "**Multiple LoRAs selected**", "**Status:** Please select only one LoRA to edit"
+
         # Load the selected LoRA
         lora_id = selected_ids[0]
         lora = get_lora_by_id(lora_id)
-        
+
         if not lora:
-            return False, "", "", f"**LoRA with ID {lora_id} not found**", "**Status:** LoRA not found"
-        
+            return False, "", "", [], f"**LoRA with ID {lora_id} not found**", "**Status:** LoRA not found"
+
         # Format info display
         lora_file_path = Path('lora') / lora['file_name']
         file_status = "✅ Exists" if lora_file_path.exists() else "❌ Missing"
         file_size = format_file_size(lora['file_size'])
-        
+
+        # Get compatible models as display names
+        compatible_models_display = get_display_names_from_model_ids(lora.get('compatible_models', []))
+
         info_display = f"""
         **Editing LoRA**
         - **ID:** {lora['id']}
         - **File Name:** {lora['file_name']}
         - **File Size:** {file_size}
         - **Status:** {file_status}
+        - **Compatible Models:** {format_compatible_models(lora.get('compatible_models', []))}
         - **Created:** {lora['created_at'][:19]}
         - **Updated:** {lora['updated_at'][:19]}
         """
-        
-        return True, lora['description'], lora['activation_keyword'] or "", info_display, f"**Status:** Editing LoRA '{lora['file_name']}'"
-        
+
+        return True, lora['description'], lora['activation_keyword'] or "", compatible_models_display, info_display, f"**Status:** Editing LoRA '{lora['file_name']}'"
+
     except Exception as e:
-        return False, "", "", f"**Error loading LoRA: {str(e)}**", f"**Status:** Error - {str(e)}"
+        return False, "", "", [], f"**Error loading LoRA: {str(e)}**", f"**Status:** Error - {str(e)}"
 
 def start_delete_selected(dataframe_data):
     """
@@ -674,40 +780,45 @@ def cancel_delete():
            gr.update(visible=False), 
            "**Status:** Delete cancelled")
 
-def update_selected_lora(dataframe_data, description, activation_keyword):
+def update_selected_lora(dataframe_data, description, activation_keyword, compatible_models_display=None):
     """
     Update the selected LoRA with new information.
-    
+
     Args:
         dataframe_data: Dataframe data with selections
         description (str): New description
         activation_keyword (str): New activation keyword
-        
+        compatible_models_display (list): List of compatible model display names
+
     Returns:
-        tuple: (dataframe_data, status_message)
+        tuple: (dataframe_data, status_message, sync_trigger)
     """
     try:
         selected_ids = get_selected_loras(dataframe_data)
-        
+
         if not selected_ids:
-            return get_lora_dataframe(), "**Status:** No LoRA selected"
-        
+            return get_lora_dataframe(), "**Status:** No LoRA selected", 0
+
         if len(selected_ids) > 1:
-            return get_lora_dataframe(), "**Status:** Multiple LoRAs selected, please select only one"
-        
+            return get_lora_dataframe(), "**Status:** Multiple LoRAs selected, please select only one", 0
+
         if not description.strip():
-            return get_lora_dataframe(), "**Status:** Description is required"
-        
+            return get_lora_dataframe(), "**Status:** Description is required", 0
+
         lora_id = selected_ids[0]
-        success, message = update_lora(lora_id, description.strip(), activation_keyword.strip())
-        
+
+        # Convert display names to model IDs
+        compatible_models = get_model_ids_from_display_names(compatible_models_display) if compatible_models_display else None
+
+        success, message = update_lora(lora_id, description.strip(), activation_keyword.strip(), compatible_models)
+
         if success:
-            return get_lora_dataframe(), f"**Status:** {message}"
+            return get_lora_dataframe(), f"**Status:** {message}", time.time()
         else:
-            return get_lora_dataframe(), f"**Status:** {message}"
-    
+            return get_lora_dataframe(), f"**Status:** {message}", 0
+
     except Exception as e:
-        return get_lora_dataframe(), f"**Status:** Error updating LoRA - {str(e)}"
+        return get_lora_dataframe(), f"**Status:** Error updating LoRA - {str(e)}", 0
 
 def save_dataframe_modifications(dataframe_data):
     """
@@ -864,11 +975,13 @@ def setup_lora_management_events(components: Dict[str, Any], dropdown_components
         inputs=[
             components['lora_dataframe'],
             components['edit_description'],
-            components['edit_activation_keyword']
+            components['edit_activation_keyword'],
+            components['edit_compatible_models']
         ],
         outputs=[
             components['lora_dataframe'],
-            components['status_display']
+            components['status_display'],
+            components['sync_state']
         ]
     )
     
@@ -896,7 +1009,8 @@ def setup_lora_management_events(components: Dict[str, Any], dropdown_components
         inputs=[
             components['file_upload'],
             components['add_description'],
-            components['add_activation_keyword']
+            components['add_activation_keyword'],
+            components['add_compatible_models']
         ],
         outputs=[
             components['lora_dataframe'],
@@ -904,6 +1018,7 @@ def setup_lora_management_events(components: Dict[str, Any], dropdown_components
             components['file_upload'],
             components['add_description'],
             components['add_activation_keyword'],
+            components['add_compatible_models'],
             components['sync_state']
         ]
     )

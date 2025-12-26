@@ -202,7 +202,7 @@ def create_processing_tab():
         label="Pending Tasks - Check boxes to select for removal",
         interactive=True,
         row_count=(0, "dynamic"),
-        col_count=4,
+        column_count=4,
         wrap=True,
         visible=False  # Hidden by default when empty
     )
@@ -481,16 +481,27 @@ def update_current_task() -> Tuple[str, str]:
 
 def process_queue_async(image_generator, modelbgrm) -> str:
     """Start queue processing in a separate thread."""
+    # Check if there are pending tasks
+    stats = processing_queue.get_stats()
+
+    if stats['pending'] == 0:
+        return "⚠️ No pending tasks in queue. Add a generation task first."
+
     def _process():
-        processing_queue.process_queue(image_generator, modelbgrm)
-    
+        try:
+            processing_queue.process_queue(image_generator, modelbgrm)
+        except Exception as e:
+            print(f"❌ Error in queue processing thread: {e}")
+            import traceback
+            traceback.print_exc()
+
     if processing_queue.is_processing:
         return "⚠️ Queue is already being processed"
-    
+
     thread = threading.Thread(target=_process, daemon=True)
     thread.start()
-    
-    return "🚀 Queue processing started"
+
+    return f"🚀 Queue processing started - {stats['pending']} task(s) will be processed"
 
 def stop_queue_processing() -> str:
     """Stop queue processing."""
@@ -606,12 +617,10 @@ def get_task_details(evt: gr.SelectData) -> str:
 
 def setup_processing_tab_events(components: Dict[str, Any], image_generator, modelbgrm, demo=None):
     """Set up event handlers for the processing tab."""
-    
     # Main control buttons
     components['process_btn'].click(
         fn=lambda: process_queue_async(image_generator, modelbgrm),
-        outputs=components['status_display'],
-        show_progress=True
+        outputs=components['status_display']
     )
     
     components['stop_btn'].click(

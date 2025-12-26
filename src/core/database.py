@@ -182,6 +182,110 @@ def save_standard_generation(timestamp, seed, prompt, model_alias, steps, guidan
     conn.commit()
     conn.close()
 
+def save_flux2_generation(timestamp, seed, prompt, flux2_mode,
+                         steps, guidance, height, width, lora_paths, lora_scales,
+                         output_filename, quantization="None", control_type=None,
+                         total_generation_time=None, model_generation_time=None):
+    """
+    Save FLUX.2-dev generation to database with mode tracking.
+
+    Args:
+        timestamp: Generation timestamp
+        seed: Random seed used
+        prompt: Text prompt
+        flux2_mode: Generation mode (text-to-image, image-to-image, inpainting, etc.)
+        steps: Number of diffusion steps
+        guidance: Guidance scale
+        height: Image height
+        width: Image width
+        lora_paths: List of LoRA file paths
+        lora_scales: List of LoRA influence scales
+        output_filename: Saved image filename
+        quantization: Quantization mode used
+        control_type: Control type for depth/canny modes
+        total_generation_time: Total generation time in seconds
+        model_generation_time: Pure model execution time in seconds
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': prompt,
+        'model_alias': 'flux2-dev',
+        'flux2_mode': flux2_mode,  # NEW - tracks which mode was used
+        'steps': steps,
+        'guidance': guidance,
+        'height': height,
+        'width': width,
+        'lora_paths': lora_paths,
+        'lora_scales': lora_scales,
+        'quantization': quantization
+    }
+
+    # Add control type if applicable (depth/canny modes)
+    if control_type:
+        metadata['control_type'] = control_type
+
+    # Add generation timing information if provided
+    if total_generation_time is not None:
+        metadata['total_generation_time'] = round(total_generation_time, 2)
+    if model_generation_time is not None:
+        metadata['model_generation_time'] = round(model_generation_time, 2)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'flux2_generation', output_filename, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+
+def save_zimage_generation(timestamp, seed, prompt, steps, width, height,
+                          output_path, total_generation_time=None, model_generation_time=None,
+                          lora_paths=None, lora_scales=None):
+    """
+    Save Z-Image-Turbo generation to database.
+
+    Args:
+        timestamp: Generation timestamp
+        seed: Random seed used
+        prompt: Text prompt
+        steps: Number of diffusion steps (default 9 for 8 NFEs)
+        width: Image width
+        height: Image height
+        output_path: Saved image filepath
+        total_generation_time: Total generation time in seconds
+        model_generation_time: Pure model execution time in seconds
+        lora_paths: List of LoRA file paths used
+        lora_scales: List of LoRA influence scales
+    """
+    metadata = {
+        'seed': seed,
+        'prompt': prompt,
+        'model_alias': 'zimage-turbo',
+        'steps': steps,
+        'guidance': 0.0,  # Z-Image-Turbo uses guidance_scale=0.0
+        'height': height,
+        'width': width,
+        'lora_paths': lora_paths or [],
+        'lora_scales': lora_scales or []
+    }
+
+    # Add generation timing information if provided
+    if total_generation_time is not None:
+        metadata['total_generation_time'] = round(total_generation_time, 2)
+    if model_generation_time is not None:
+        metadata['model_generation_time'] = round(model_generation_time, 2)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO images (timestamp, generation_type, output_filename, metadata_json)
+        VALUES (?, ?, ?, ?)
+    ''', (timestamp, 'zimage_generation', output_path, json.dumps(metadata)))
+    conn.commit()
+    conn.close()
+    print(f"  📝 Database entry created for: {output_path}")
+
 def save_flux_fill_generation(timestamp, seed, prompt, mode, steps, guidance, 
                             height, width, lora_paths, lora_scales, output_filename):
     """
@@ -504,6 +608,9 @@ def get_image_details(index):
                 details_lines.append(f"  🎛️ Redux Variation: {metadata['redux_variation']}")
             if 'variation_strength' in metadata:
                 details_lines.append(f"  💫 Variation Strength: {metadata['variation_strength']}")
+        elif generation_type == 'zimage_generation':
+            details_lines.append(f"  🚀 Type: Z-Image-Turbo fast generation")
+            details_lines.append(f"  ⚡ NFEs: 8 (9 steps)")
         elif generation_type == 'controlnet' and 'controlnet' in metadata:
             cn_data = metadata['controlnet']
             details_lines.append(f"  🎛️ ControlNet Type: {cn_data.get('type', 'Unknown')}")
@@ -713,6 +820,7 @@ def sync_gallery_and_disk():
 def init_lora_table():
     """
     Initialize the LoRA table in the database.
+    Includes migration for compatible_models column.
     """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -725,30 +833,52 @@ def init_lora_table():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             file_size INTEGER,
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER DEFAULT 1,
+            compatible_models TEXT
         )
     ''')
+
+    # Migration: Add compatible_models column if it doesn't exist
+    cursor.execute("PRAGMA table_info(lora)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'compatible_models' not in columns:
+        print("🔄 Migrating LoRA table: adding compatible_models column...")
+        cursor.execute('ALTER TABLE lora ADD COLUMN compatible_models TEXT')
+        # Update existing LoRAs to be compatible with flux1-schnell
+        cursor.execute('UPDATE lora SET compatible_models = ? WHERE compatible_models IS NULL',
+                      ('["flux1-schnell"]',))
+        print(f"✅ Migration complete: existing LoRAs tagged as FLUX.1 Schnell compatible")
+
     conn.commit()
     conn.close()
 
 def get_all_lora():
     """
     Get all active LoRA models from the database.
-    
+
     Returns:
         list: List of LoRA dictionaries with all information
     """
+    import json
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, file_name, description, activation_keyword, created_at, updated_at, file_size, is_active
-        FROM lora 
+        SELECT id, file_name, description, activation_keyword, created_at, updated_at, file_size, is_active, compatible_models
+        FROM lora
         WHERE is_active = 1
         ORDER BY file_name COLLATE NOCASE
     ''')
-    
+
     lora_list = []
     for row in cursor.fetchall():
+        # Parse compatible_models JSON
+        compatible_models = []
+        if row[8]:
+            try:
+                compatible_models = json.loads(row[8])
+            except json.JSONDecodeError:
+                compatible_models = []
+
         lora_list.append({
             'id': row[0],
             'file_name': row[1],
@@ -757,34 +887,44 @@ def get_all_lora():
             'created_at': row[4],
             'updated_at': row[5],
             'file_size': row[6],
-            'is_active': row[7]
+            'is_active': row[7],
+            'compatible_models': compatible_models
         })
-    
+
     conn.close()
     return lora_list
 
 def get_lora_by_id(lora_id):
     """
     Get a specific LoRA by its ID.
-    
+
     Args:
         lora_id (int): The ID of the LoRA
-        
+
     Returns:
         dict: LoRA information or None if not found
     """
+    import json
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, file_name, description, activation_keyword, created_at, updated_at, file_size, is_active
-        FROM lora 
+        SELECT id, file_name, description, activation_keyword, created_at, updated_at, file_size, is_active, compatible_models
+        FROM lora
         WHERE id = ?
     ''', (lora_id,))
-    
+
     row = cursor.fetchone()
     conn.close()
-    
+
     if row:
+        # Parse compatible_models JSON
+        compatible_models = []
+        if row[8]:
+            try:
+                compatible_models = json.loads(row[8])
+            except json.JSONDecodeError:
+                compatible_models = []
+
         return {
             'id': row[0],
             'file_name': row[1],
@@ -793,75 +933,83 @@ def get_lora_by_id(lora_id):
             'created_at': row[4],
             'updated_at': row[5],
             'file_size': row[6],
-            'is_active': row[7]
+            'is_active': row[7],
+            'compatible_models': compatible_models
         }
     return None
 
-def add_lora(file_name, description, activation_keyword=""):
+def add_lora(file_name, description, activation_keyword="", compatible_models=None):
     """
     Add a new LoRA to the database.
-    
+
     Args:
         file_name (str): Name of the LoRA file
         description (str): Description of the LoRA
         activation_keyword (str): Activation keyword for the LoRA
-        
+        compatible_models (list): List of model IDs this LoRA is compatible with
+
     Returns:
         tuple: (success: bool, message: str, lora_id: int)
     """
+    import json
     from datetime import datetime
-    
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     try:
         # Check if file already exists
         cursor.execute("SELECT id FROM lora WHERE file_name = ?", (file_name,))
         if cursor.fetchone():
             conn.close()
             return False, f"LoRA with filename '{file_name}' already exists", None
-        
+
         # Get file size if file exists
         lora_file_path = Path('lora') / file_name
         file_size = None
         if lora_file_path.exists():
             file_size = lora_file_path.stat().st_size
-        
+
         current_time = datetime.now().isoformat()
-        
+
+        # Serialize compatible_models to JSON
+        compatible_models_json = json.dumps(compatible_models) if compatible_models else None
+
         cursor.execute('''
-            INSERT INTO lora (file_name, description, activation_keyword, created_at, updated_at, file_size, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (file_name, description, activation_keyword, current_time, current_time, file_size, 1))
-        
+            INSERT INTO lora (file_name, description, activation_keyword, created_at, updated_at, file_size, is_active, compatible_models)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (file_name, description, activation_keyword, current_time, current_time, file_size, 1, compatible_models_json))
+
         lora_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        
+
         return True, f"LoRA '{file_name}' added successfully", lora_id
-        
+
     except Exception as e:
         conn.rollback()
         conn.close()
         return False, f"Error adding LoRA: {str(e)}", None
 
-def update_lora(lora_id, description, activation_keyword):
+def update_lora(lora_id, description, activation_keyword, compatible_models=None):
     """
     Update an existing LoRA in the database.
-    
+
     Args:
         lora_id (int): ID of the LoRA to update
         description (str): New description
         activation_keyword (str): New activation keyword
-        
+        compatible_models (list): List of model IDs this LoRA is compatible with (None to keep existing)
+
     Returns:
         tuple: (success: bool, message: str)
     """
+    import json
     from datetime import datetime
-    
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     try:
         # Check if LoRA exists
         cursor.execute("SELECT file_name FROM lora WHERE id = ?", (lora_id,))
@@ -869,21 +1017,29 @@ def update_lora(lora_id, description, activation_keyword):
         if not result:
             conn.close()
             return False, f"LoRA with ID {lora_id} not found"
-        
+
         file_name = result[0]
         current_time = datetime.now().isoformat()
-        
-        cursor.execute('''
-            UPDATE lora 
-            SET description = ?, activation_keyword = ?, updated_at = ?
-            WHERE id = ?
-        ''', (description, activation_keyword, current_time, lora_id))
-        
+
+        if compatible_models is not None:
+            compatible_models_json = json.dumps(compatible_models)
+            cursor.execute('''
+                UPDATE lora
+                SET description = ?, activation_keyword = ?, updated_at = ?, compatible_models = ?
+                WHERE id = ?
+            ''', (description, activation_keyword, current_time, compatible_models_json, lora_id))
+        else:
+            cursor.execute('''
+                UPDATE lora
+                SET description = ?, activation_keyword = ?, updated_at = ?
+                WHERE id = ?
+            ''', (description, activation_keyword, current_time, lora_id))
+
         conn.commit()
         conn.close()
-        
+
         return True, f"LoRA '{file_name}' updated successfully"
-        
+
     except Exception as e:
         conn.rollback()
         conn.close()
@@ -940,22 +1096,50 @@ def delete_lora(lora_id, delete_file=False):
 def get_lora_for_image_generator():
     """
     Get LoRA data in the format expected by the image generator.
-    
+
     Returns:
         list: List of LoRA dictionaries compatible with existing image generator
     """
     lora_list = get_all_lora()
-    
+
     # Convert to format expected by image generator
     formatted_lora = []
     for lora in lora_list:
         formatted_lora.append({
             'file_name': lora['file_name'],
             'description': lora['description'],
-            'activation_keyword': lora['activation_keyword'] or ""
+            'activation_keyword': lora['activation_keyword'] or "",
+            'compatible_models': lora.get('compatible_models', [])
         })
-    
+
     return formatted_lora
+
+
+def get_loras_for_model(model_id):
+    """
+    Get LoRA data filtered by model compatibility.
+
+    Args:
+        model_id (str): The model ID to filter by (e.g., 'flux1-schnell', 'flux2-dev')
+
+    Returns:
+        list: List of LoRA dictionaries compatible with the specified model
+    """
+    lora_list = get_all_lora()
+
+    # Filter by compatible_models
+    compatible_loras = []
+    for lora in lora_list:
+        compatible_models = lora.get('compatible_models', [])
+        if model_id in compatible_models:
+            compatible_loras.append({
+                'file_name': lora['file_name'],
+                'description': lora['description'],
+                'activation_keyword': lora['activation_keyword'] or "",
+                'compatible_models': compatible_models
+            })
+
+    return compatible_loras
 
 def refresh_lora_file_sizes():
     """

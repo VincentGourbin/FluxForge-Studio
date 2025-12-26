@@ -23,7 +23,7 @@ import psutil
 import torch
 import gc
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any, Callable, Tuple
 from pathlib import Path
 from enum import Enum
 from utils.progress_tracker import global_progress_tracker
@@ -31,6 +31,8 @@ from utils.progress_tracker import global_progress_tracker
 class TaskType(Enum):
     """Enumeration of supported task types."""
     STANDARD_GENERATION = "standard_generation"
+    FLUX2_GENERATION = "flux2_generation"  # NEW: Unified FLUX.2 multi-modal generation
+    ZIMAGE_GENERATION = "zimage_generation"  # Z-Image-Turbo fast text-to-image
     FLUX_FILL = "flux_fill"
     KONTEXT = "kontext"
     FLUX_CANNY = "flux_canny"
@@ -38,7 +40,6 @@ class TaskType(Enum):
     FLUX_REDUX = "flux_redux"
     BACKGROUND_REMOVAL = "background_removal"
     UPSCALING = "upscaling"
-    QWEN_GENERATION = "qwen_generation"
 
 class TaskStatus(Enum):
     """Enumeration of task statuses."""
@@ -67,7 +68,25 @@ class ProcessingTask:
             prompt = self.parameters.get('prompt', 'Unknown prompt')[:50]
             model = self.parameters.get('model_alias', 'Unknown model')
             return f"Generate: {prompt}... (Model: {model})"
-        
+
+        elif self.type == TaskType.FLUX2_GENERATION:
+            mode = self.parameters.get('generation_mode', 'text-to-image')
+            prompt = self.parameters.get('prompt', 'Unknown prompt')[:40]
+            mode_emoji = {
+                'text-to-image': '✨',
+                'image-to-image': '🔄',
+                'inpainting': '🎨',
+                'outpainting': '📐',
+                'depth-guided': '🌊',
+                'canny-guided': '🖋️',
+                'multi-reference': '🔀'
+            }.get(mode, '🎨')
+            return f"{mode_emoji} FLUX.2 ({mode}): {prompt}..."
+
+        elif self.type == TaskType.ZIMAGE_GENERATION:
+            prompt = self.parameters.get('prompt', 'Unknown prompt')[:50]
+            return f"⚡ Z-Image-Turbo: {prompt}..."
+
         elif self.type == TaskType.FLUX_FILL:
             mode = self.parameters.get('fill_mode', 'Unknown mode')
             prompt = self.parameters.get('prompt', 'Unknown prompt')[:30]
@@ -98,15 +117,7 @@ class ProcessingTask:
                 return f"Upscaling (x{factor}, {quantization})"
             else:
                 return f"Upscaling (x{factor})"
-        
-        elif self.type == TaskType.QWEN_GENERATION:
-            prompt = self.parameters.get('prompt', 'Unknown prompt')[:50]
-            quantization = self.parameters.get('quantization', 'None')
-            if quantization != 'None':
-                return f"Qwen-Image: {prompt}... ({quantization})"
-            else:
-                return f"Qwen-Image: {prompt}..."
-        
+
         return f"{self.type.value.replace('_', ' ').title()} Task"
     
     def to_dict(self) -> Dict[str, Any]:
@@ -384,11 +395,19 @@ class ProcessingQueue:
     def _execute_task(self, task: ProcessingTask, image_generator, modelbgrm):
         """Execute the actual generation task based on its type."""
         params = task.parameters
-        
+
         if task.type == TaskType.STANDARD_GENERATION:
             # Execute standard generation using image_generator directly
             return self._execute_standard_generation(params, image_generator)
-        
+
+        elif task.type == TaskType.FLUX2_GENERATION:
+            # Execute FLUX.2 unified multi-modal generation
+            return self._execute_flux2_generation(params, task)
+
+        elif task.type == TaskType.ZIMAGE_GENERATION:
+            # Execute Z-Image-Turbo fast text-to-image generation
+            return self._execute_zimage_generation(params)
+
         elif task.type == TaskType.FLUX_FILL:
             from postprocessing.flux_fill import process_flux_fill
             return process_flux_fill(
@@ -442,10 +461,7 @@ class ProcessingQueue:
                 params['upscale_factor'], 
                 params.get('quantization', 'None')
             )
-        
-        elif task.type == TaskType.QWEN_GENERATION:
-            return self._execute_qwen_generation(params, task)
-        
+
         else:
             raise ValueError(f"Unknown task type: {task.type}")
     
@@ -506,145 +522,176 @@ class ProcessingQueue:
             *lora_checkboxes,                   # LoRA selections
             *lora_scales                        # LoRA scales
         )
-    
-    def _execute_qwen_generation(self, params: Dict[str, Any], task: 'ProcessingTask'):
-        """Execute Qwen-Image generation task."""
-        from generator.qwen_generator import get_qwen_generator
-        from utils.image_processing import save_image_with_metadata
-        from core.database import save_standard_generation
-        from datetime import datetime
-        from pathlib import Path
-        
-        # Get Qwen generator instance
-        qwen_generator = get_qwen_generator()
-        
-        # Process LoRA parameters (similar to standard generation but simpler)
-        lora_paths = []
-        lora_scales = []
-        
-        lora_state = params.get('lora_state')
-        if lora_state:
-            print(f"🔍 Debug: LoRA state received: {lora_state}")
-            strengths = [params.get('lora_strength_1', 0.8), 
-                        params.get('lora_strength_2', 0.8), 
-                        params.get('lora_strength_3', 0.8)]
-            print(f"🔍 Debug: LoRA strengths: {strengths}")
-            
-            for i, selected_lora in enumerate(lora_state):
-                print(f"🔍 Debug: Processing LoRA {i}: {selected_lora}")
-                if i < len(strengths):
-                    # Get LoRA filename and construct full path
-                    file_path = None
-                    if isinstance(selected_lora, dict):
-                        # The structure is: {"id": "lora_0", "name": "filename.safetensors", ...}
-                        filename = selected_lora.get('name')
-                        if filename:
-                            file_path = f"lora/{filename}" if not filename.startswith('lora/') else filename
-                    elif isinstance(selected_lora, str):
-                        file_path = f"lora/{selected_lora}" if not selected_lora.startswith('lora/') else selected_lora
-                    
-                    if file_path:
-                        print(f"🔍 Debug: Adding LoRA path: {file_path} with scale: {strengths[i]}")
-                        lora_paths.append(file_path)
-                        lora_scales.append(strengths[i] if strengths[i] is not None else 0.8)
-        
-        print(f"🎯 Final LoRA paths for Qwen: {lora_paths}")
-        print(f"🎯 Final LoRA scales for Qwen: {lora_scales}")
-        
-        # Create progress callback to update task progress (using tqdm interception)
-        def progress_callback(step: int, timestep: int = 0, latents=None):
-            """Update task progress based on generation step."""
-            total_steps = params['steps']
-            progress = min((step / total_steps) * 100, 99)  # Cap at 99% until completion
-            # Just update progress, keep status as PROCESSING
-            self._update_progress(task, progress)
-            # Update description to show current step
-            task.description = f"🎨 Qwen: Step {step}/{total_steps} - {params.get('prompt', '')[:40]}..."
-        
-        # Call Qwen generator with progress tracking
-        result = qwen_generator.generate_image(
+
+    def _execute_flux2_generation(self, params: Dict[str, Any], task: ProcessingTask):
+        """Execute FLUX.2 unified multi-modal generation."""
+        from generator.flux2_generator import get_flux2_generator
+
+        flux2_gen = get_flux2_generator()
+
+        # Extract generation mode
+        mode = params.get('generation_mode', 'text-to-image')
+
+        # Prepare inputs based on mode
+        reference_images = self._extract_reference_images(mode, params)
+        mask = self._extract_mask(mode, params)
+        control_image = self._extract_control_image(mode, params)
+
+        # Extract LoRA parameters
+        lora_paths, lora_scales = self._extract_lora_params(params)
+
+        # Generate image
+        image, status_message, timing_info = flux2_gen.generate(
             prompt=params['prompt'],
-            negative_prompt=params.get('negative_prompt', ''),
+            mode=mode,
+            reference_images=reference_images,
+            mask=mask,
+            control_image=control_image,
+            control_type=params.get('control_type'),
+            steps=params['steps'],
+            guidance_scale=params['guidance'],
             width=params['width'],
             height=params['height'],
-            num_inference_steps=params['steps'],
-            guidance_scale=params['guidance_scale'],
             seed=params['seed'],
-# Removed magic prompt parameters - they just added generic keywords
             lora_paths=lora_paths,
             lora_scales=lora_scales,
-            quantization=params.get('quantization', 'None'),
-            progress_callback=progress_callback
+            quantization=params.get('quantization', 'None')
         )
-        
-        # Handle return format (image, status, timing_info)
-        if len(result) == 3:
-            image, status, timing_info = result
-        else:
-            # Fallback for older format
-            image, status = result
-            timing_info = None
-        
+
         if image is None:
-            raise RuntimeError(f"Qwen generation failed: {status}")
-        
-        # Save image to filesystem with metadata
-        timestamp_obj = datetime.now()
-        timestamp_str = timestamp_obj.strftime('%Y-%m-%d %H:%M:%S')  # For database (readable)
-        timestamp_file = timestamp_obj.strftime("%Y%m%d_%H%M%S")     # For filename (compact)
-        filename = f"qwen_image_{timestamp_file}.png"
-        output_path = Path("outputimage") / filename
-        
-        # Prepare metadata for saving
-        metadata = {
-            "prompt": params['prompt'],
-            "negative_prompt": params.get('negative_prompt', ''),
-            "model": "Qwen-Image",
-            "width": params['width'],
-            "height": params['height'],
-            "steps": params['steps'],
-            "guidance_scale": params['guidance_scale'],
-            "seed": params['seed'],
-            "use_magic_prompt": params.get('use_magic_prompt', True),
-            "magic_language": params.get('magic_language', 'en'),
-            "quantization": params.get('quantization', 'None'),
-            "timestamp": timestamp_str
-        }
-        
-        # Save image with metadata
-        success = save_image_with_metadata(image, output_path, metadata)
-        if not success:
-            print(f"⚠️  Warning: Could not save image metadata to {output_path}")
-        
-        # Save to database for History tab
-        try:
-            # Extract timing information if available
-            total_time = timing_info.get('total_generation_time') if timing_info else None
-            model_time = timing_info.get('model_generation_time') if timing_info else None
-            
-            save_standard_generation(
-                timestamp=timestamp_str,
-                seed=params['seed'],
-                prompt=params['prompt'],
-                model_alias='Qwen-Image',
-                steps=params['steps'],
-                guidance=params['guidance_scale'],
-                height=params['height'],
-                width=params['width'],
-                lora_paths=lora_paths,
-                lora_scales=lora_scales,
-                output_filename=str(output_path),
-                negative_prompt=params.get('negative_prompt', ''),
-                total_generation_time=total_time,
-                model_generation_time=model_time
-            )
-            print(f"✅ Qwen image saved to database: {filename}")
-        except Exception as db_error:
-            print(f"⚠️  Database save failed: {db_error}")
-        
+            raise RuntimeError(f"FLUX.2 generation failed: {status_message}")
+
+        # Note: Image saving and database save are already done in flux2_generator.generate()
+        # No need to save again here - just return the image
+        print(f"✅ FLUX.2 generation completed: {status_message}")
+
         return image
-    
-    
+
+    def _execute_zimage_generation(self, params: Dict[str, Any]):
+        """Execute Z-Image-Turbo fast text-to-image generation."""
+        from generator.zimage_generator import get_zimage_generator
+
+        zimage_gen = get_zimage_generator()
+
+        # Extract LoRA parameters from lora_state
+        lora_paths, lora_scales = self._extract_lora_params(params)
+
+        # Generate image (database save is handled in the generator)
+        image, status_message, timing_info = zimage_gen.generate(
+            prompt=params['prompt'],
+            width=params.get('width', 1024),
+            height=params.get('height', 1024),
+            steps=params.get('steps', 9),
+            seed=params.get('seed'),
+            lora_paths=lora_paths,
+            lora_scales=lora_scales
+        )
+
+        if image is None:
+            raise RuntimeError(f"Z-Image generation failed: {status_message}")
+
+        print(f"✅ Z-Image-Turbo generation completed: {status_message}")
+        return image
+
+    def _extract_reference_images(self, mode: str, params: Dict[str, Any]) -> Optional[List]:
+        """Extract reference images based on generation mode."""
+        if mode == "text-to-image":
+            return None
+        elif mode == "image-to-image":
+            img = params.get('reference_image')
+            return [img] if img is not None else None
+        elif mode in ["inpainting", "outpainting"]:
+            # For inpainting, mask_editor_data contains the base image
+            # For outpainting, outpaint_image contains the base image
+            if mode == "inpainting":
+                editor_data = params.get('mask_editor_data')
+                if editor_data and isinstance(editor_data, dict):
+                    img = editor_data.get('background')
+                    return [img] if img is not None else None
+            else:  # outpainting
+                img = params.get('outpaint_image')
+                return [img] if img is not None else None
+        elif mode in ["depth-guided", "canny-guided"]:
+            img = params.get('control_input_image')
+            return [img] if img is not None else None
+        elif mode == "multi-reference":
+            # Collect all reference images (ref_1, ref_2, ref_3)
+            refs = []
+            for i in [1, 2, 3]:
+                img = params.get(f'ref_image_{i}')
+                if img is not None:
+                    refs.append(img)
+            return refs if refs else None
+        return None
+
+    def _extract_mask(self, mode: str, params: Dict[str, Any]) -> Optional[Any]:
+        """Extract or generate mask for inpainting/outpainting."""
+        if mode == "inpainting":
+            from utils.mask_utils import extract_inpainting_mask_from_editor
+            editor_data = params.get('mask_editor_data')
+            if editor_data:
+                return extract_inpainting_mask_from_editor(editor_data)
+        elif mode == "outpainting":
+            from utils.mask_utils import create_outpainting_mask
+            base_image = params.get('outpaint_image')
+            if base_image:
+                return create_outpainting_mask(
+                    base_image,
+                    params.get('expand_top', 25),
+                    params.get('expand_bottom', 25),
+                    params.get('expand_left', 25),
+                    params.get('expand_right', 25)
+                )
+        return None
+
+    def _extract_control_image(self, mode: str, params: Dict[str, Any]) -> Optional[Any]:
+        """Generate control image for depth/canny guided modes."""
+        if mode == "depth-guided":
+            from postprocessing.flux_depth import generate_depth_map
+            input_image = params.get('control_input_image')
+            if input_image:
+                return generate_depth_map(input_image)
+        elif mode == "canny-guided":
+            from utils.canny_processing import preprocess_canny
+            input_image = params.get('control_input_image')
+            if input_image:
+                return preprocess_canny(
+                    input_image,
+                    params.get('canny_low_threshold', 100),
+                    params.get('canny_high_threshold', 200)
+                )
+        return None
+
+    def _extract_lora_params(self, params: Dict[str, Any]) -> Tuple[List[str], List[float]]:
+        """Extract LoRA paths and scales from parameters.
+
+        Args:
+            params: Task parameters dictionary
+
+        Returns:
+            tuple: (lora_paths, lora_scales)
+        """
+        lora_paths = []
+        lora_scales = []
+
+        lora_state = params.get('lora_state', [])
+        if lora_state:
+            strengths = [
+                params.get('lora_strength_1', 0.8),
+                params.get('lora_strength_2', 0.8),
+                params.get('lora_strength_3', 0.8)
+            ]
+
+            for i, selected_lora in enumerate(lora_state):
+                if i < len(strengths) and i < 3:  # Max 3 LoRAs
+                    lora_name = selected_lora.get('name', '')
+                    if lora_name:
+                        lora_paths.append(lora_name)
+                        lora_scales.append(strengths[i] if strengths[i] is not None else 0.8)
+
+        return lora_paths, lora_scales
+
+
     def stop_processing(self):
         """Stop queue processing."""
         self._stop_processing = True

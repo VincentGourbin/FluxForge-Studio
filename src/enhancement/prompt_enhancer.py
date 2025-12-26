@@ -213,7 +213,7 @@ def enhance_prompt(selected_model, input_text, input_image):
 
                 # Format message based on model family (check if model supports specific image format)
                 # Most vision models use the 'images' array, some older ones use 'image' field
-                if any(keyword in selected_model.lower() for keyword in ['qwen', 'llama3.2-vision', 'mllama', 'vision']):
+                if any(keyword in selected_model.lower() for keyword in ['llama3.2-vision', 'mllama', 'vision']):
                     # Modern vision models typically use 'images' array
                     messages = [{
                         'role': 'user',
