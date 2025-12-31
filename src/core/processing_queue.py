@@ -40,6 +40,7 @@ class TaskType(Enum):
     FLUX_REDUX = "flux_redux"
     BACKGROUND_REMOVAL = "background_removal"
     UPSCALING = "upscaling"
+    QWEN_LAYERED = "qwen_layered"  # Qwen-Image-Layered decomposition
 
 class TaskStatus(Enum):
     """Enumeration of task statuses."""
@@ -457,9 +458,20 @@ class ProcessingQueue:
         elif task.type == TaskType.UPSCALING:
             from postprocessing.upscaler import upscale_image
             return upscale_image(
-                params['input_image'], 
-                params['upscale_factor'], 
+                params['input_image'],
+                params['upscale_factor'],
                 params.get('quantization', 'None')
+            )
+
+        elif task.type == TaskType.QWEN_LAYERED:
+            from postprocessing.qwen_layered import decompose_to_layers
+            return decompose_to_layers(
+                params['input_image'],
+                params.get('num_layers', 4),
+                params.get('resolution', 640),
+                params.get('steps', 50),
+                params.get('cfg_scale', 4.0),
+                params.get('seed', 0)
             )
 
         else:
@@ -524,7 +536,7 @@ class ProcessingQueue:
         )
 
     def _execute_flux2_generation(self, params: Dict[str, Any], task: ProcessingTask):
-        """Execute FLUX.2 unified multi-modal generation."""
+        """Execute FLUX.2 generation (text-to-image, image-to-image, multi-reference)."""
         from generator.flux2_generator import get_flux2_generator
 
         flux2_gen = get_flux2_generator()
@@ -534,8 +546,6 @@ class ProcessingQueue:
 
         # Prepare inputs based on mode
         reference_images = self._extract_reference_images(mode, params)
-        mask = self._extract_mask(mode, params)
-        control_image = self._extract_control_image(mode, params)
 
         # Extract LoRA parameters
         lora_paths, lora_scales = self._extract_lora_params(params)
@@ -545,9 +555,6 @@ class ProcessingQueue:
             prompt=params['prompt'],
             mode=mode,
             reference_images=reference_images,
-            mask=mask,
-            control_image=control_image,
-            control_type=params.get('control_type'),
             steps=params['steps'],
             guidance_scale=params['guidance'],
             width=params['width'],
@@ -555,7 +562,7 @@ class ProcessingQueue:
             seed=params['seed'],
             lora_paths=lora_paths,
             lora_scales=lora_scales,
-            quantization=params.get('quantization', 'None')
+            quantization=params.get('quantization', 'qint8')
         )
 
         if image is None:
@@ -622,44 +629,6 @@ class ProcessingQueue:
                 if img is not None:
                     refs.append(img)
             return refs if refs else None
-        return None
-
-    def _extract_mask(self, mode: str, params: Dict[str, Any]) -> Optional[Any]:
-        """Extract or generate mask for inpainting/outpainting."""
-        if mode == "inpainting":
-            from utils.mask_utils import extract_inpainting_mask_from_editor
-            editor_data = params.get('mask_editor_data')
-            if editor_data:
-                return extract_inpainting_mask_from_editor(editor_data)
-        elif mode == "outpainting":
-            from utils.mask_utils import create_outpainting_mask
-            base_image = params.get('outpaint_image')
-            if base_image:
-                return create_outpainting_mask(
-                    base_image,
-                    params.get('expand_top', 25),
-                    params.get('expand_bottom', 25),
-                    params.get('expand_left', 25),
-                    params.get('expand_right', 25)
-                )
-        return None
-
-    def _extract_control_image(self, mode: str, params: Dict[str, Any]) -> Optional[Any]:
-        """Generate control image for depth/canny guided modes."""
-        if mode == "depth-guided":
-            from postprocessing.flux_depth import generate_depth_map
-            input_image = params.get('control_input_image')
-            if input_image:
-                return generate_depth_map(input_image)
-        elif mode == "canny-guided":
-            from utils.canny_processing import preprocess_canny
-            input_image = params.get('control_input_image')
-            if input_image:
-                return preprocess_canny(
-                    input_image,
-                    params.get('canny_low_threshold', 100),
-                    params.get('canny_high_threshold', 200)
-                )
         return None
 
     def _extract_lora_params(self, params: Dict[str, Any]) -> Tuple[List[str], List[float]]:

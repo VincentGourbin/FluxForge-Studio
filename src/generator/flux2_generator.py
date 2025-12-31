@@ -1,31 +1,28 @@
 """FLUX.2-dev Unified Image Generation Module
 
-This module provides a unified interface for FLUX.2-dev multi-modal generation,
+This module provides a unified interface for FLUX.2-dev generation,
 replacing 8 separate FLUX.1/Qwen model pipelines with a single architecture.
 
 Key Features:
-- Unified pipeline supporting 7 generation modes
-- Text-to-Image, Image-to-Image, Inpainting, Outpainting
-- Depth-guided, Canny-guided, Multi-reference composition
+- Unified pipeline supporting 3 generation modes
 - Dynamic LoRA loading (up to 3 simultaneous adapters)
-- Full qint8 quantization (Transformer + Text Encoder)
+- Two-step inference with standalone Mistral encoder for memory optimization
 - Progress tracking and database integration
 
-Modes Supported:
-- ✨ text-to-image: Standard prompt-based generation
-- 🔄 image-to-image: Image variation and transformation
-- 🎨 inpainting: Fill masked areas with AI-generated content
-- 📐 outpainting: Extend image boundaries
-- 🌊 depth-guided: Structure-preserving generation using depth maps
-- 🖋️ canny-guided: Edge-preserving generation using Canny edges
-- 🔀 multi-reference: Combine multiple reference images (FLUX.2 feature)
+Two-Step Inference (Memory Optimization):
+- Step 1: Load Mistral text encoder (~48GB) → encode prompt → unload
+- Step 2: Load transformer (+ VAE) → generate image with prompt_embeds → unload
+- Mistral and transformer are never in memory together
 
-Quantization Options (from VincentGOURBIN/flux_qint_8bit):
-- qint8: Pre-quantized 8-bit models (~52GB total)
-  - Transformer: qint8 (~30GB)
-  - Text Encoder (Mistral): qint8 (~22GB)
-  - VAE: bfloat16 (not quantized, ~3GB)
-- full: Full precision from black-forest-labs/FLUX.2-dev (~115GB)
+Modes Supported:
+- text-to-image: Standard prompt-based generation
+- image-to-image: Image variation and transformation
+- multi-reference: Combine multiple reference images (Multi-Angles)
+
+Quantization Options:
+- qint8: Quantized transformer (~30GB) + VAE (~3GB)
+- full: Full precision transformer (~60GB) + VAE (~3GB)
+Text encoder: Mistral-Small-3.2-24B (full precision, ~48GB bfloat16)
 
 Author: FluxForge Team
 License: MIT
@@ -38,8 +35,6 @@ import time
 import torch
 import gc
 import warnings
-import io
-import requests
 
 # Suppress harmless dtype mismatch warning from quanto quantization
 # This occurs because quanto stores weights in float32 but computations use bfloat16
@@ -52,7 +47,7 @@ from PIL import Image
 from diffusers import Flux2Pipeline
 from diffusers.models import Flux2Transformer2DModel
 from diffusers.utils import load_image
-from huggingface_hub import get_token, snapshot_download, list_repo_files
+from huggingface_hub import snapshot_download, list_repo_files
 from optimum.quanto import QuantizedDiffusersModel
 
 # Local imports
@@ -68,36 +63,35 @@ class QuantizedFlux2Transformer2DModel(QuantizedDiffusersModel):
 
     Used to load pre-quantized transformer weights from HuggingFace Hub.
     Compatible with qint8, qint4, and qint2 quantization types.
-
-    Note: Text encoder quantization is NOT used due to dtype issues causing
-    NaN values and black images. Only transformer is quantized.
     """
     base_class = Flux2Transformer2DModel
 
 
-# Pre-quantized model repository (contains FLUX.2-dev and FLUX.1-schnell)
-QUANTO_REPO_ID = "VincentGOURBIN/flux_qint_8bit"
+# Pre-quantized model repository
+QUANTO_REPO_ID = "VincentGOURBIN/flux_qint_8bit"  # Quantized transformer
 
 # Model path mapping for the quantized repo
-# Structure: {model_slug}/transformer/qint8, {model_slug}/text_encoder/qint8
+# Structure: {model_slug}/transformer/qint8
 FLUX2_MODEL_SLUG = "flux-2-dev"
 
 
 class Flux2Generator:
-    """Unified FLUX.2-dev generator supporting all generation modes via single pipeline.
+    """Unified FLUX.2-dev generator supporting 3 generation modes.
 
-    This class consolidates 8 separate model pipelines (FLUX.1-dev, FLUX.1-Krea-dev,
-    Qwen-Image, FLUX Fill, Kontext, Depth, Canny, Redux) into one unified architecture.
+    Modes: text-to-image, image-to-image, multi-reference (Multi-Angles)
+
+    Uses two-step inference for memory optimization:
+    1. Mistral text encoder (~48GB) encodes prompt, then unloads
+    2. Transformer + VAE generates image with prompt_embeds
 
     Attributes:
         device (str): Target device ('mps', 'cuda', or 'cpu')
         dtype (torch.dtype): Model precision (bfloat16 for GPU/MPS, float32 for CPU)
         model_id (str): HuggingFace model identifier
-        use_remote_text_encoder (bool): Whether to use remote text encoding
-        pipeline (Flux2Pipeline): Cached pipeline instance
+        pipeline (Flux2Pipeline): Cached diffusion pipeline instance
         current_lora_paths (list): Currently loaded LoRA file paths
         current_lora_scales (list): Current LoRA influence scales
-        current_quantization (str): Current quantization setting
+        current_quantization (str): Current quantization setting ('qint8' or 'full')
         lora_directory (str): Directory containing LoRA files
         lora_data (list): Available LoRA models metadata
     """
@@ -114,19 +108,20 @@ class Flux2Generator:
         else:
             self.dtype = torch.float32
 
-        # Model selection - default to standard (will quantize if requested)
-        # Pre-quantized BNB 4-bit: "diffusers/FLUX.2-dev-bnb-4bit"
-        # Standard: "black-forest-labs/FLUX.2-dev"
+        # Model selection
+        # Full precision: black-forest-labs/FLUX.2-dev (complete pipeline)
+        # Quantized: transformer from VincentGOURBIN + text encoder from unsloth
         self.model_id = "black-forest-labs/FLUX.2-dev"
 
-        # Memory optimization toggle
-        self.use_remote_text_encoder = False  # Disabled by default, can be enabled via UI
-
-        # Pipeline caching (same pattern as ImageGenerator)
+        # Pipeline caching
         self.pipeline = None
         self.current_lora_paths = []
         self.current_lora_scales = []
         self.current_quantization = None
+
+        # Two-step inference: Mistral text encoder loaded separately from transformer
+        # This saves memory by never having both in VRAM at the same time
+        # Text encoding handled by src/encoder/mistral_encoder.py (singleton pattern)
 
         # LoRA configuration from database
         self.lora_directory = config.lora_directory
@@ -147,14 +142,56 @@ class Flux2Generator:
             print(f"⚠️  Failed to load LoRA data: {e}")
             return []
 
+    def _encode_prompt_separately(self, prompt: str) -> torch.Tensor:
+        """Encode prompt using standalone Mistral encoder, then unload to save memory.
+
+        Two-step inference optimization:
+        1. Load Mistral text encoder (~48GB)
+        2. Encode prompt → get prompt_embeds (batch, 512, 15360)
+        3. Unload Mistral to free memory
+        4. Return embeddings for later use with transformer
+
+        Uses the standalone Mistral encoder from src/encoder/mistral_encoder.py
+        which extracts hidden states from layers 10, 20, 30.
+
+        Args:
+            prompt: Text prompt to encode
+
+        Returns:
+            torch.Tensor: Prompt embeddings of shape (1, 512, 15360)
+        """
+        from encoder.mistral_encoder import (
+            encode_prompt_mistral,
+            unload_mistral_encoder
+        )
+
+        print("🧠 Step 1/2: Text encoding with Mistral...")
+        print(f"  📝 Encoding: '{prompt[:50]}...'")
+
+        # Encode with standalone Mistral
+        prompt_embeds = encode_prompt_mistral(
+            prompt=prompt,
+            device=self.device,
+            use_fp8=False  # Full precision only (FP8 doesn't work reliably)
+        )
+
+        if prompt_embeds is None:
+            raise RuntimeError("Failed to encode prompt with Mistral")
+
+        print(f"  ✅ Encoded: shape={prompt_embeds.shape}, dtype={prompt_embeds.dtype}")
+
+        # Unload Mistral to free memory for transformer
+        print("  🧹 Unloading text encoder...")
+        unload_mistral_encoder()
+        cleanup_memory()
+
+        return prompt_embeds
+
     def generate(
         self,
         prompt: str,
         mode: str = "text-to-image",
         reference_images: Optional[List[Image.Image]] = None,
-        mask: Optional[Image.Image] = None,
-        control_image: Optional[Image.Image] = None,
-        control_type: Optional[str] = None,
         steps: int = 28,
         guidance_scale: float = 4.0,
         width: int = 1024,
@@ -165,15 +202,17 @@ class Flux2Generator:
         quantization: str = "qint8",
         progress_callback: Optional[Callable] = None
     ) -> Tuple[Image.Image, str, Dict[str, Any]]:
-        """Unified generation method supporting all FLUX.2 modes.
+        """Unified generation method supporting FLUX.2 modes.
+
+        Supported modes:
+        - text-to-image: Standard prompt-based generation
+        - image-to-image: Image variation/transformation
+        - multi-reference: Multi-image composition (Multi-Angles)
 
         Args:
             prompt: Text description of desired image
-            mode: Generation mode (text-to-image, image-to-image, inpainting, etc.)
+            mode: Generation mode (text-to-image, image-to-image, multi-reference)
             reference_images: Input images for image-based modes
-            mask: Mask image for inpainting/outpainting
-            control_image: Preprocessed control image (depth map or canny edges)
-            control_type: Type of control ("depth" or "canny")
             steps: Number of diffusion steps (28-50 recommended, 28 is cost-effective)
             guidance_scale: Classifier-free guidance strength (4.0 default)
             width: Output image width
@@ -198,31 +237,29 @@ class Flux2Generator:
         generator = torch.Generator(device=self.device).manual_seed(seed)
 
         try:
-            # Ensure pipeline is loaded with correct quantization
+            # ===== TWO-STEP INFERENCE FOR MEMORY OPTIMIZATION =====
+            # Step 1: Encode prompt (load text encoder, encode, unload)
+            # Step 2: Generate image (load transformer only, use prompt_embeds)
+            # This way text encoder and transformer are never in memory together
+
+            # Step 1: Encode prompt
+            prompt_embeds = self._encode_prompt_separately(prompt)
+
+            # Step 2: Load transformer-only pipeline
+            print("🎨 Step 2/2: Image generation...")
             self._ensure_pipeline_loaded(quantization)
 
-            # Update LoRA adapters if changed
+            # Setup LoRA adapters
             if lora_paths != self.current_lora_paths or lora_scales != self.current_lora_scales:
                 self._update_loras(lora_paths or [], lora_scales or [])
 
-            # Prepare pipeline inputs based on mode
+            # Prepare pipeline inputs with pre-computed embeddings
             pipeline_inputs = self._prepare_inputs(
                 mode=mode,
-                prompt=prompt,
+                prompt=None,  # Don't pass prompt, use embeddings
+                prompt_embeds=prompt_embeds,
                 reference_images=reference_images,
-                mask=mask,
-                control_image=control_image,
-                control_type=control_type
             )
-
-            # Remote text encoder (optional memory optimization)
-            if self.use_remote_text_encoder:
-                try:
-                    pipeline_inputs['prompt_embeds'] = self._get_remote_embeds(prompt)
-                    pipeline_inputs.pop('prompt', None)  # Use embeds instead
-                except Exception as e:
-                    print(f"⚠️  Remote text encoder failed, using local: {e}")
-                    # Continue with local prompt
 
             # Progress tracking integration
             global_progress_tracker.reset()
@@ -283,7 +320,7 @@ class Flux2Generator:
                 lora_scales=lora_scales or [],
                 output_filename=output_path,  # Full path for load_history to find the file
                 quantization=quantization,
-                control_type=control_type,
+                control_type=None,  # No longer used, kept for DB compatibility
                 total_generation_time=total_time,
                 model_generation_time=model_time
             )
@@ -332,29 +369,34 @@ class Flux2Generator:
             return False
 
     def _ensure_pipeline_loaded(self, quantization: str):
-        """Load FLUX.2 pipeline with appropriate quantization if not already loaded.
+        """Load FLUX.2 pipeline (transformer only) with appropriate quantization.
+
+        Two-step inference: text encoder is loaded separately in _encode_prompt_separately().
+        This method only loads the transformer and VAE for diffusion.
 
         Args:
             quantization: Quantization mode ("qint8" or "full")
 
-        Pre-quantized models are loaded from VincentGOURBIN/flux_qint_8bit.
-        Structure: flux-2-dev/transformer/qint8/, flux-2-dev/text_encoder/qint8/
+        Loading strategy:
+        - qint8: Quantized transformer from VincentGOURBIN/flux_qint_8bit
+        - full: Full precision transformer from black-forest-labs/FLUX.2-dev
+        Both modes: NO text encoder (uses prompt_embeds from step 1)
         """
 
-        # Check if pipeline needs reloading (quantization changed)
+        # Check if pipeline needs reloading
         if self.pipeline is not None and self.current_quantization == quantization:
-            return  # Already loaded with correct quantization
+            return  # Already loaded with correct configuration
 
-        print(f"🔄 Loading FLUX.2 pipeline with {quantization} quantization...")
+        print(f"  📦 Loading transformer with {quantization} quantization...")
 
         # Clean up existing pipeline
         if self.pipeline is not None:
-            self.pipeline = None  # Set to None instead of del to keep attribute
+            self.pipeline = None
             cleanup_memory()
 
         try:
             if quantization == "qint8":
-                # Check for available transformer in the repo
+                # Load quantized transformer from VincentGOURBIN repo
                 has_transformer = self._check_repo_has_component(
                     QUANTO_REPO_ID, FLUX2_MODEL_SLUG, "transformer", "qint8"
                 )
@@ -362,13 +404,10 @@ class Flux2Generator:
                 if not has_transformer:
                     raise RuntimeError(f"No quantized transformer found in {QUANTO_REPO_ID}/{FLUX2_MODEL_SLUG}")
 
-                # Only quantize transformer - text encoder quantization causes dtype issues (NaN/black images)
                 transformer_subpath = f"{FLUX2_MODEL_SLUG}/transformer/qint8"
                 download_patterns = [f"{FLUX2_MODEL_SLUG}/transformer/qint8/*"]
 
-                print(f"📦 Loading pre-quantized qint8 models from {QUANTO_REPO_ID}...")
-                print(f"  📦 Transformer: {transformer_subpath}")
-                print(f"  📦 Text Encoder: full precision (quantized causes dtype issues)")
+                print(f"  📦 Transformer: {transformer_subpath} (qint8)")
 
                 # Download quantized transformer
                 quant_path = snapshot_download(
@@ -377,67 +416,64 @@ class Flux2Generator:
                 )
                 transformer_path = os.path.join(quant_path, transformer_subpath)
 
-                # Load base pipeline WITHOUT transformer only (keep text encoder full precision)
-                print("📦 Loading base pipeline with full precision text encoder...")
+                # Load base pipeline WITHOUT transformer AND text encoder
+                # (transformer will be replaced, text encoding done separately)
                 try:
                     self.pipeline = Flux2Pipeline.from_pretrained(
                         self.model_id,
                         transformer=None,
+                        text_encoder=None,  # No text encoder needed
                         torch_dtype=self.dtype,
                         use_safetensors=True,
                         local_files_only=True
                     )
-                    print("  ✅ Loaded from local cache")
+                    print("  ✅ VAE loaded from local cache")
                 except Exception:
                     print("  ℹ️  Not in cache, downloading...")
                     self.pipeline = Flux2Pipeline.from_pretrained(
                         self.model_id,
                         transformer=None,
+                        text_encoder=None,
                         torch_dtype=self.dtype,
                         use_safetensors=True
                     )
 
-                # Move pipeline components to device
                 self.pipeline = self.pipeline.to(self.device)
 
-                # Load quantized transformer
-                print(f"📦 Loading quantized transformer...")
+                # Load and set quantized transformer
                 quantized_transformer = QuantizedFlux2Transformer2DModel.from_pretrained(
                     transformer_path
                 )
-                print(f"  📦 Moving to {self.device}...")
                 quantized_transformer.to(self.device)
                 self.pipeline.transformer = quantized_transformer
                 print(f"  ✅ Transformer loaded (qint8)")
 
-                print(f"✅ Pre-quantized model loaded (transformer qint8, text encoder full)")
-
             elif quantization == "full":
-                # Full precision from official Black Forest Labs repo
-                # Try local cache first to avoid re-downloading
-                print("📦 Loading full precision model from black-forest-labs/FLUX.2-dev...")
+                # Full precision transformer (no text encoder)
+                print("  📦 Transformer: full precision")
+
                 try:
                     self.pipeline = Flux2Pipeline.from_pretrained(
                         self.model_id,
+                        text_encoder=None,  # No text encoder needed
                         torch_dtype=self.dtype,
                         use_safetensors=True,
-                        local_files_only=True  # Try cache first
+                        local_files_only=True
                     ).to(self.device)
                     print("  ✅ Loaded from local cache")
                 except Exception:
                     print("  ℹ️  Not in cache, downloading...")
                     self.pipeline = Flux2Pipeline.from_pretrained(
                         self.model_id,
+                        text_encoder=None,
                         torch_dtype=self.dtype,
                         use_safetensors=True
                     ).to(self.device)
 
-                print("✅ Full precision model loaded successfully")
-
             else:
-                # Unknown quantization or legacy "None", default to qint8
+                # Unknown quantization, default to qint8
                 if quantization == "None":
-                    print("⚠️  'None' is deprecated, use 'full' for full precision or 'qint8' for quantized")
+                    print("⚠️  'None' is deprecated, use 'full' or 'qint8'")
                     return self._ensure_pipeline_loaded("full")
                 print(f"⚠️  Unknown quantization '{quantization}', defaulting to qint8...")
                 return self._ensure_pipeline_loaded("qint8")
@@ -446,7 +482,6 @@ class Flux2Generator:
             if hasattr(self.pipeline, 'enable_attention_slicing'):
                 self.pipeline.enable_attention_slicing()
 
-            # Update current quantization state
             self.current_quantization = quantization
 
         except Exception as e:
@@ -459,100 +494,48 @@ class Flux2Generator:
     def _prepare_inputs(
         self,
         mode: str,
-        prompt: str,
+        prompt: Optional[str],
+        prompt_embeds: Optional[torch.Tensor],
         reference_images: Optional[List[Image.Image]],
-        mask: Optional[Image.Image],
-        control_image: Optional[Image.Image],
-        control_type: Optional[str]
     ) -> Dict[str, Any]:
         """Prepare pipeline inputs based on generation mode.
 
+        Supported modes:
+        - text-to-image: Standard prompt-based generation
+        - image-to-image: Image variation/transformation
+        - multi-reference: Multi-image composition (Multi-Angles)
+
         Args:
             mode: Generation mode
-            prompt: Text prompt
+            prompt: Text prompt (None if using prompt_embeds)
+            prompt_embeds: Pre-computed prompt embeddings
             reference_images: Input images (if applicable)
-            mask: Mask image (if applicable)
-            control_image: Control image (if applicable)
-            control_type: Type of control (if applicable)
 
         Returns:
             dict: Pipeline input parameters
         """
-
-        base_inputs = {'prompt': prompt}
+        # Use either prompt or prompt_embeds (prompt_embeds takes precedence)
+        if prompt_embeds is not None:
+            base_inputs = {'prompt_embeds': prompt_embeds}
+        else:
+            base_inputs = {'prompt': prompt}
 
         if mode == "text-to-image":
-            # Standard text-to-image generation
             return base_inputs
 
         elif mode == "image-to-image":
-            # Image variation / transformation
             if reference_images and len(reference_images) > 0:
                 base_inputs['image'] = reference_images[0]
-            return base_inputs
-
-        elif mode == "inpainting":
-            # Fill masked areas
-            if reference_images and len(reference_images) > 0:
-                base_inputs['image'] = reference_images[0]
-            if mask:
-                base_inputs['mask_image'] = mask
-            return base_inputs
-
-        elif mode == "outpainting":
-            # Extend image boundaries
-            if reference_images and len(reference_images) > 0:
-                base_inputs['image'] = reference_images[0]
-            if mask:
-                base_inputs['mask_image'] = mask
-            return base_inputs
-
-        elif mode == "depth-guided":
-            # Depth-preserving generation
-            if control_image:
-                base_inputs['control_image'] = control_image
-                base_inputs['controlnet_conditioning_scale'] = 0.7
-            return base_inputs
-
-        elif mode == "canny-guided":
-            # Edge-preserving generation
-            if control_image:
-                base_inputs['control_image'] = control_image
-                base_inputs['controlnet_conditioning_scale'] = 0.7
             return base_inputs
 
         elif mode == "multi-reference":
-            # Multi-image composition (NEW FLUX.2 feature)
             if reference_images and len(reference_images) > 0:
                 base_inputs['image'] = reference_images  # List of images
             return base_inputs
 
         else:
-            # Unknown mode - fallback to text-to-image
             print(f"⚠️  Unknown mode '{mode}', defaulting to text-to-image")
             return base_inputs
-
-    def _get_remote_embeds(self, prompt: str) -> torch.Tensor:
-        """Get prompt embeddings from remote text encoder (memory optimization).
-
-        Args:
-            prompt: Text prompt to encode
-
-        Returns:
-            torch.Tensor: Prompt embeddings
-        """
-
-        response = requests.post(
-            "https://remote-text-encoder-flux-2.huggingface.co/predict",
-            json={"prompt": prompt},
-            headers={
-                "Authorization": f"Bearer {get_token()}",
-                "Content-Type": "application/json"
-            }
-        )
-
-        prompt_embeds = torch.load(io.BytesIO(response.content))
-        return prompt_embeds.to(self.device)
 
     def _check_lora_compatibility(self, lora_filename: str) -> bool:
         """Check if a LoRA is compatible with FLUX.2-dev.
@@ -648,6 +631,30 @@ class Flux2Generator:
             print(f"❌ LoRA update failed: {e}")
             import traceback
             traceback.print_exc()
+
+    def unload_pipeline(self):
+        """Unload FLUX.2 pipeline to free memory.
+
+        Call this after generation is complete if you need to free GPU memory
+        for other tasks. The pipeline will be reloaded on next generate() call.
+
+        Note: Text encoder (Mistral) is managed separately via encoder.mistral_encoder
+        """
+        if self.pipeline is not None:
+            print("🧹 Unloading FLUX.2 pipeline...")
+
+            # Reset state
+            self.pipeline = None
+            self.current_lora_paths = []
+            self.current_lora_scales = []
+            self.current_quantization = None
+
+            # Force memory cleanup
+            cleanup_memory()
+
+            print("✅ FLUX.2 pipeline unloaded")
+        else:
+            print("ℹ️  No pipeline loaded to unload")
 
 
 # Singleton instance
